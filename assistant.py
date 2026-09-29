@@ -260,29 +260,25 @@ def process_message(user_phone: str, incoming_text: str) -> str:
                     config=config,
                 )
 
-                # Handle tool calling loop
+                # Handle tool calling loop (supports multiple function calls in one turn)
                 while response.function_calls:
-                    call = response.function_calls[0]
-                    tool_name = call.name
-                    args = dict(call.args) if call.args else {}
-
-                    tool_result = execute_tool(tool_name, args, user_phone)
-
-                    # Append model's tool call & function response to contents
                     contents.append(response.candidates[0].content)
-                    contents.append(
-                        types.Content(
-                            role="user",
-                            parts=[
-                                types.Part.from_function_response(
-                                    name=tool_name,
-                                    response={"result": tool_result},
-                                )
-                            ],
-                        )
-                    )
 
-                    # Follow-up generation after tool execution
+                    response_parts = []
+                    for call in response.function_calls:
+                        tool_name = call.name
+                        args = dict(call.args) if call.args else {}
+                        tool_result = execute_tool(tool_name, args, user_phone)
+                        response_parts.append(
+                            types.Part.from_function_response(
+                                name=tool_name,
+                                response={"result": tool_result},
+                            )
+                        )
+
+                    contents.append(types.Content(role="user", parts=response_parts))
+
+                    # Follow-up generation after executing all tools
                     response = client.models.generate_content(
                         model=current_model,
                         contents=contents,
