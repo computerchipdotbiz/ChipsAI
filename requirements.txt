@@ -7,4 +7,6 @@ google-genai>=0.1.1
 apscheduler>=3.10.4
 pytz>=2024.1
 python-dateutil>=2.9.0
+psycopg2-binary>=2.9.9
+
 
