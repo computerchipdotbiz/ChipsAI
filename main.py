@@ -121,12 +121,16 @@ async def incoming_telegram(request: Request):
             logger.warning(f"Unauthorized Telegram chat_id: {chat_id}")
             return {"ok": True}
 
-        # Process message through Gemini
-        user_identifier = f"tg_{chat_id}"
-        reply_text = assistant.process_message(user_phone=user_identifier, incoming_text=text)
+        if text.startswith("/start"):
+            reply_text = "ChipAI online and connected. What are we working on, Chip?"
+        else:
+            # Process message through Gemini
+            user_identifier = f"tg_{chat_id}"
+            reply_text = assistant.process_message(user_phone=user_identifier, incoming_text=text)
 
         # Dispatch reply back to Telegram
-        telegram_service.send_message(chat_id, reply_text)
+        sent = telegram_service.send_message(chat_id, reply_text)
+        logger.info(f"Dispatched Telegram reply to {chat_id}, success: {sent}")
         return {"ok": True}
     except Exception as e:
         logger.error(f"Error handling Telegram webhook: {e}", exc_info=True)

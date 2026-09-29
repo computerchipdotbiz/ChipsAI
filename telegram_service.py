@@ -9,7 +9,7 @@ load_dotenv()
 
 logger = logging.getLogger("chipai.telegram")
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8976159344:AAEP3jBtyCnO-_Mj7xzyOatNdEFK8-DeDMI")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 
