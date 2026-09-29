@@ -329,3 +329,41 @@ Then the quote."""
     except Exception as e:
         logger.error(f"Failed to generate daily quote: {e}")
         return "💡 ChipAI Daily Fuel: You built the foundation. Now keep steady, trust your craft, and take care of your people today."
+
+
+def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
+    """Transcribe voice audio into text using Gemini Flash-Lite with minimal token overhead."""
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
+        return ""
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        prompt = (
+            "Transcribe this voice message accurately and verbatim. "
+            "Output ONLY the plain transcription text, nothing else. "
+            "If the audio is completely silent or unintelligible, respond with an empty string."
+        )
+
+        for model in ["gemini-3.5-flash-lite", "gemini-3.5-flash"]:
+            try:
+                res = client.models.generate_content(
+                    model=model,
+                    contents=[
+                        types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
+                        prompt,
+                    ],
+                )
+                raw_text = (res.text or "").strip()
+                if raw_text in ["SILENCE", "EMPTY", '""']:
+                    return ""
+                return raw_text.replace("—", ", ")
+            except Exception as e:
+                logger.warning(f"Voice transcription model {model} failed: {e}")
+                continue
+
+        return ""
+    except Exception as e:
+        logger.error(f"Error during audio transcription: {e}", exc_info=True)
+        return ""

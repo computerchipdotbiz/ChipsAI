@@ -93,3 +93,24 @@ def test_webhook_unauthorized():
     response = client.post("/sms", data={"From": "+19990001111", "Body": "Hello"})
     assert response.status_code == 200
     assert response.text == "<Response></Response>"
+
+
+def test_telegram_voice_webhook(monkeypatch):
+    client = TestClient(app)
+    monkeypatch.setattr("telegram_service.download_file_by_id", lambda file_id: b"fake_audio_bytes")
+    monkeypatch.setattr("assistant.transcribe_audio", lambda audio_bytes, mime_type: "Hello from voice")
+    monkeypatch.setattr("assistant.process_message", lambda user_phone, incoming_text: f"Echo: {incoming_text}")
+    sent_msgs = []
+    monkeypatch.setattr("telegram_service.send_message", lambda chat_id, text: sent_msgs.append((chat_id, text)) or True)
+
+    payload = {
+        "message": {
+            "chat": {"id": 12345},
+            "voice": {"file_id": "voice_123", "mime_type": "audio/ogg"}
+        }
+    }
+    resp = client.post("/telegram", json=payload)
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}
+    assert len(sent_msgs) == 1
+    assert sent_msgs[0][1] == "Echo: Hello from voice"

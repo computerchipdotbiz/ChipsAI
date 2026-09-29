@@ -73,3 +73,33 @@ def is_authorized_tg(chat_id: str | int) -> bool:
     if not TELEGRAM_CHAT_ID:
         return True
     return str(chat_id) == str(TELEGRAM_CHAT_ID)
+
+
+def download_file_by_id(file_id: str) -> bytes | None:
+    """Download file bytes from Telegram Bot API using file_id."""
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        logger.warning("TELEGRAM_BOT_TOKEN not configured; cannot download file.")
+        return None
+
+    try:
+        # Step 1: Query getFile to retrieve the relative file_path
+        url = f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            if not data.get("ok"):
+                logger.error(f"Telegram getFile returned error: {data}")
+                return None
+            file_path = data.get("result", {}).get("file_path")
+            if not file_path:
+                logger.error(f"No file_path in getFile result: {data}")
+                return None
+
+        # Step 2: Download raw bytes from Telegram file server
+        file_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+        with urllib.request.urlopen(file_url, timeout=20) as file_resp:
+            return file_resp.read()
+    except Exception as e:
+        logger.error(f"Failed to download file {file_id} from Telegram: {e}")
+        return None

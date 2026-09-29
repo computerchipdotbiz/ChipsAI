@@ -112,14 +112,38 @@ async def incoming_telegram(request: Request):
         chat_id = message.get("chat", {}).get("id")
         text = message.get("text", "").strip()
 
-        if not chat_id or not text:
+        if not chat_id:
             return {"ok": True}
-
-        logger.info(f"Incoming Telegram from {chat_id}: '{text}'")
 
         if not telegram_service.is_authorized_tg(chat_id):
             logger.warning(f"Unauthorized Telegram chat_id: {chat_id}")
             return {"ok": True}
+
+        # Check for incoming voice memo or audio file
+        voice = message.get("voice") or message.get("audio")
+        if voice and not text:
+            file_id = voice.get("file_id")
+            mime_type = voice.get("mime_type", "audio/ogg")
+            logger.info(f"Incoming Telegram voice note from {chat_id} (file_id: {file_id}, mime: {mime_type})")
+            audio_bytes = telegram_service.download_file_by_id(file_id)
+            if audio_bytes:
+                text = assistant.transcribe_audio(audio_bytes, mime_type=mime_type)
+                logger.info(f"Transcribed voice note from {chat_id}: '{text}'")
+                if not text:
+                    telegram_service.send_message(
+                        chat_id, "I couldn't quite catch that voice note, Chip. Could you say it again or send it as text?"
+                    )
+                    return {"ok": True}
+            else:
+                telegram_service.send_message(
+                    chat_id, "I had trouble pulling that audio file from Telegram. Mind sending it as text?"
+                )
+                return {"ok": True}
+
+        if not text:
+            return {"ok": True}
+
+        logger.info(f"Incoming Telegram from {chat_id}: '{text}'")
 
         if text.startswith("/start"):
             reply_text = "ChipAI online and connected. What are we working on, Chip?"
