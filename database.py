@@ -1,20 +1,30 @@
 import os
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Generator
 
 DB_FILE = os.getenv("DATABASE_PATH", "reminders.db")
 
 
-def get_connection(db_path: str = DB_FILE) -> sqlite3.Connection:
+@contextmanager
+def get_db(db_path: str = DB_FILE) -> Generator[sqlite3.Connection, None, None]:
+    """Context manager for SQLite connections that ensures commit and proper closure."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db(db_path: str = DB_FILE) -> None:
     """Initialize database tables for reminders and message history."""
-    with get_connection(db_path) as conn:
+    with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -43,18 +53,17 @@ def init_db(db_path: str = DB_FILE) -> None:
         cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, scheduled_time)"
         )
-        conn.commit()
 
 
 def add_reminder(
     user_phone: str,
     reminder_text: str,
     scheduled_time_utc: str,
-    db_path: str = DB_FILE
+    db_path: str = DB_FILE,
 ) -> int:
     """Schedule a new reminder. scheduled_time_utc must be ISO 8601 UTC string."""
     now_iso = datetime.now(timezone.utc).isoformat()
-    with get_connection(db_path) as conn:
+    with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -63,14 +72,13 @@ def add_reminder(
             """,
             (user_phone, reminder_text, scheduled_time_utc, now_iso),
         )
-        conn.commit()
         return cursor.lastrowid
 
 
 def get_due_reminders(db_path: str = DB_FILE) -> List[Dict[str, Any]]:
     """Return all pending reminders whose scheduled_time is less than or equal to now."""
     now_iso = datetime.now(timezone.utc).isoformat()
-    with get_connection(db_path) as conn:
+    with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -88,7 +96,7 @@ def get_due_reminders(db_path: str = DB_FILE) -> List[Dict[str, Any]]:
 def mark_reminder_sent(reminder_id: int, db_path: str = DB_FILE) -> None:
     """Mark a reminder as sent."""
     now_iso = datetime.now(timezone.utc).isoformat()
-    with get_connection(db_path) as conn:
+    with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -98,12 +106,11 @@ def mark_reminder_sent(reminder_id: int, db_path: str = DB_FILE) -> None:
             """,
             (now_iso, reminder_id),
         )
-        conn.commit()
 
 
 def list_active_reminders(user_phone: str, db_path: str = DB_FILE) -> List[Dict[str, Any]]:
     """List pending upcoming reminders for the user."""
-    with get_connection(db_path) as conn:
+    with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -120,7 +127,7 @@ def list_active_reminders(user_phone: str, db_path: str = DB_FILE) -> List[Dict[
 
 def cancel_reminder(reminder_id: int, user_phone: str, db_path: str = DB_FILE) -> bool:
     """Cancel a pending reminder."""
-    with get_connection(db_path) as conn:
+    with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -130,14 +137,13 @@ def cancel_reminder(reminder_id: int, user_phone: str, db_path: str = DB_FILE) -
             """,
             (reminder_id, user_phone),
         )
-        conn.commit()
         return cursor.rowcount > 0
 
 
 def save_message(user_phone: str, role: str, content: str, db_path: str = DB_FILE) -> None:
     """Save a user or assistant message to history."""
     now_iso = datetime.now(timezone.utc).isoformat()
-    with get_connection(db_path) as conn:
+    with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -146,14 +152,13 @@ def save_message(user_phone: str, role: str, content: str, db_path: str = DB_FIL
             """,
             (user_phone, role, content, now_iso),
         )
-        conn.commit()
 
 
 def get_recent_history(
     user_phone: str, limit: int = 6, db_path: str = DB_FILE
 ) -> List[Dict[str, str]]:
     """Retrieve recent conversation history for context."""
-    with get_connection(db_path) as conn:
+    with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -166,5 +171,4 @@ def get_recent_history(
             (user_phone, limit),
         )
         rows = cursor.fetchall()
-        # Return in chronological order
         return [{"role": row["role"], "content": row["content"]} for row in reversed(rows)]
