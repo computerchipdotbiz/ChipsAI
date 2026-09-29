@@ -30,7 +30,9 @@ def get_current_user_time_info() -> dict:
 
 
 def convert_to_utc_iso(target_time_str: str) -> str:
-    """Parse a date/time string from Gemini and convert it to UTC ISO 8601."""
+    """Parse a date/time string from Gemini and convert it to UTC ISO 8601.
+    Guarantees reminders are scheduled in the future and protects against past-year hallucinations.
+    """
     try:
         tz = pytz.timezone(USER_TIMEZONE)
     except Exception:
@@ -49,6 +51,25 @@ def convert_to_utc_iso(target_time_str: str) -> str:
 
     if dt.tzinfo is None:
         dt = tz.localize(dt)
+    else:
+        dt = dt.astimezone(tz)
+
+    now_local = datetime.now(tz)
+
+    # Protect against model year hallucinations (e.g. model outputting 2025 instead of 2026)
+    if dt.year < now_local.year:
+        try:
+            dt = dt.replace(year=now_local.year)
+        except ValueError:
+            dt = dt + timedelta(days=365)
+
+    # If the target date has already passed this year, roll forward to next year
+    if dt < now_local and dt.date() < now_local.date():
+        try:
+            dt = dt.replace(year=now_local.year + 1)
+        except ValueError:
+            dt = dt + timedelta(days=365)
+
     dt_utc = dt.astimezone(timezone.utc)
     return dt_utc.isoformat()
 
@@ -76,11 +97,12 @@ You are communicating with Chip directly over SMS text messaging.
 
 # Time & Scheduling Context
 - Timezone: '{time_info["timezone"]}'. Current local time: {time_info["current_local_readable"]} ({time_info["current_local_iso"]}).
+- CURRENT YEAR: The current year is strictly 2026. All reminders MUST be scheduled for 2026 or future years. NEVER set a reminder in 2025 or any past year!
 - CRITICAL TOOL CALLING RULES:
   * Whenever Chip asks to set a reminder (one-shot or recurring), you MUST ALWAYS execute the `set_reminder` tool call. NEVER claim or pretend you set a reminder in text without executing `set_reminder`!
   * Whenever Chip asks what reminders are active, scheduled, or what reminders he has, you MUST ALWAYS execute the `list_reminders` tool call to read the database. NEVER answer from memory without calling `list_reminders`!
   * Whenever Chip asks to cancel a reminder, you MUST execute `cancel_reminder`.
-- One-Shot Reminders: When Chip asks for a one-time reminder, compute the target date and time in his local timezone and invoke `set_reminder(reminder_text, target_time_iso, recurrence='none')`.
+- One-Shot Reminders: When Chip asks for a one-time reminder, compute the target date and time in his local timezone (in 2026 or future) and invoke `set_reminder(reminder_text, target_time_iso, recurrence='none')`.
 - Recurring Reminders: You have full native support for recurring reminders! When Chip asks for a repeating reminder (e.g. 'remind me every day at 6pm to give Liam his medicine', 'every weekday at 8am to check backups'):
   1. Calculate the target timestamp for the first upcoming occurrence. (If the target time has not passed yet today, set it for today. If it has already passed today, set it for tomorrow).
   2. Set recurrence to 'daily', 'weekdays', or 'weekly'.
@@ -180,7 +202,7 @@ def process_message(user_phone: str, incoming_text: str) -> str:
                     },
                     "target_time_iso": {
                         "type": "STRING",
-                        "description": "The exact target date and time in ISO 8601 format (e.g. 2026-09-29T17:30:00).",
+                        "description": "The exact target date and time in ISO 8601 format for 2026 or later (e.g. 2026-10-05T09:00:00). Never schedule in 2025 or the past.",
                     },
                     "recurrence": {
                         "type": "STRING",

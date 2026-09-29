@@ -193,6 +193,36 @@ def add_reminder_direct(
     return {"status": "ok", "reminder_id": rid, "text": text, "scheduled_utc": utc_iso, "recurrence": recurrence}
 
 
+@app.post("/api/reminders/reset")
+def reset_reminder_direct(
+    reminder_id: int = Form(...),
+    scheduled_utc: str = Form(...),
+    status: str = Form("pending"),
+):
+    """Reset a reminder timestamp and status back to pending."""
+    with database.get_db() as conn:
+        database.execute_query(
+            conn,
+            "UPDATE reminders SET scheduled_time = ?, status = ?, sent_at = NULL WHERE id = ?",
+            (scheduled_utc, status, reminder_id),
+        )
+    return {"status": "ok", "reminder_id": reminder_id, "scheduled_utc": scheduled_utc}
+
+
+@app.post("/api/reminders/delete")
+def delete_reminder_direct(
+    reminder_id: int = Form(...),
+):
+    """Delete a reminder row from the database."""
+    with database.get_db() as conn:
+        database.execute_query(
+            conn,
+            "DELETE FROM reminders WHERE id = ?",
+            (reminder_id,),
+        )
+    return {"status": "ok", "deleted_id": reminder_id}
+
+
 if __name__ == "__main__":
     import uvicorn
 
