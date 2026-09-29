@@ -156,6 +156,19 @@ def get_reminders_status():
         return {"count": len(reminders), "reminders": reminders, "recent_history": history}
 
 
+@app.post("/api/reminders/add")
+def add_reminder_direct(
+    text: str = Form(...),
+    time_iso: str = Form(...),
+    recurrence: str = Form("none"),
+    user_id: str = Form("tg_5127043704"),
+):
+    """Direct API endpoint to add or verify a reminder."""
+    utc_iso = assistant.convert_to_utc_iso(time_iso)
+    rid = database.add_reminder(user_id, text, utc_iso, recurrence=recurrence)
+    return {"status": "ok", "reminder_id": rid, "text": text, "scheduled_utc": utc_iso, "recurrence": recurrence}
+
+
 if __name__ == "__main__":
     import uvicorn
 

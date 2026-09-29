@@ -31,16 +31,23 @@ def get_current_user_time_info() -> dict:
 
 def convert_to_utc_iso(target_time_str: str) -> str:
     """Parse a date/time string from Gemini and convert it to UTC ISO 8601."""
-    from dateutil import parser
-
     try:
         tz = pytz.timezone(USER_TIMEZONE)
     except Exception:
         tz = pytz.timezone("UTC")
 
-    dt = parser.parse(target_time_str)
+    dt = None
+    try:
+        from dateutil import parser
+        dt = parser.parse(target_time_str)
+    except Exception:
+        pass
+
+    if dt is None:
+        clean_str = target_time_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(clean_str)
+
     if dt.tzinfo is None:
-        # Assume it's in user's local timezone
         dt = tz.localize(dt)
     dt_utc = dt.astimezone(timezone.utc)
     return dt_utc.isoformat()
