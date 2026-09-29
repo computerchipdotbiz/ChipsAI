@@ -69,7 +69,12 @@ You are communicating with Chip directly over SMS text messaging.
 
 # Time & Scheduling Context
 - Timezone: '{time_info["timezone"]}'. Current local time: {time_info["current_local_readable"]} ({time_info["current_local_iso"]}).
-- When Chip asks you to remind him of something (e.g., 'remind me in 30 minutes to check the mail', 'remind me tomorrow at 9am to check Wazuh'), compute the exact target date and time in his local timezone and invoke `set_reminder`.
+- One-Shot Reminders: When Chip asks for a one-time reminder (e.g., 'remind me in 30 minutes to check the mail', 'remind me tomorrow at 9am to check Wazuh'), compute the target date and time in his local timezone and invoke `set_reminder(reminder_text, target_time_iso, recurrence='none')`.
+- Recurring Reminders: You have full native support for recurring reminders! When Chip asks for a repeating reminder (e.g. 'remind me every day at 6pm to give Liam his medicine', 'every weekday at 8am to check backups'):
+  1. Calculate the target timestamp for the first upcoming occurrence. (If the target time has not passed yet today, set it for today. If it has already passed today, set it for tomorrow).
+  2. Set recurrence to 'daily', 'weekdays', or 'weekly'.
+  3. Invoke `set_reminder(reminder_text, target_time_iso, recurrence)`.
+  4. Confirm to Chip clearly that the reminder is scheduled, what time it fires, and that it repeats daily/weekly.
 - Tools available: `set_reminder`, `list_reminders`, `cancel_reminder`. Always confirm reminder schedule and subject clearly.
 
 # Chip's Background & Profile
@@ -80,7 +85,7 @@ You are communicating with Chip directly over SMS text messaging.
 - Current Studies: Enrolled in Maestro University, pursuing an Associate of Science in AI Software Engineering.
 - Personal Life & Household:
   * Lives in Mansfield with his girlfriend, Jen.
-  * Has three sons; Jen has one son.
+  * Has three sons; Jen has one son (Liam).
   * Dogs: Newton (a Great Pyrenees) and Kirby (a Dachshund).
   * Vehicle: Drives a 2025 Hyundai Elantra Hybrid Blue.
 - Personal Interests & Tools:
@@ -99,13 +104,15 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
     if tool_name == "set_reminder":
         text = args.get("reminder_text", "")
         time_str = args.get("target_time_iso", "")
+        recurrence = args.get("recurrence", "none")
         try:
             utc_iso = convert_to_utc_iso(time_str)
-            reminder_id = database.add_reminder(user_phone, text, utc_iso)
+            reminder_id = database.add_reminder(user_phone, text, utc_iso, recurrence=recurrence)
+            rec_desc = f" (repeats {recurrence})" if recurrence and recurrence != "none" else ""
             return {
                 "success": True,
                 "reminder_id": reminder_id,
-                "message": f"Reminder #{reminder_id} set for '{text}' at {time_str} ({utc_iso} UTC).",
+                "message": f"Reminder #{reminder_id} set for '{text}' at {time_str}{rec_desc} ({utc_iso} UTC).",
             }
         except Exception as e:
             logger.error(f"Failed to set reminder: {e}")
@@ -114,15 +121,16 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
     elif tool_name == "list_reminders":
         try:
             reminders = database.list_active_reminders(user_phone)
-            # Format times for user readability
             tz = pytz.timezone(USER_TIMEZONE)
             formatted = []
             for r in reminders:
                 dt_utc = datetime.fromisoformat(r["scheduled_time"])
                 dt_local = dt_utc.astimezone(tz)
+                rec = r.get("recurrence", "none")
+                rec_label = f" [repeats {rec}]" if rec and rec != "none" else ""
                 formatted.append({
                     "id": r["id"],
-                    "text": r["reminder_text"],
+                    "text": r["reminder_text"] + rec_label,
                     "scheduled_local": dt_local.strftime("%Y-%m-%d %I:%M %p %Z"),
                 })
             return {"success": True, "active_reminders": formatted}
@@ -163,6 +171,11 @@ def process_message(user_phone: str, incoming_text: str) -> str:
                     "target_time_iso": {
                         "type": "STRING",
                         "description": "The exact target date and time in ISO 8601 format (e.g. 2026-09-29T17:30:00).",
+                    },
+                    "recurrence": {
+                        "type": "STRING",
+                        "enum": ["none", "daily", "weekdays", "weekly"],
+                        "description": "How often to repeat: 'none' for one-shot, 'daily' for every day, 'weekdays' for Monday-Friday, 'weekly' for once a week.",
                     },
                 },
                 "required": ["reminder_text", "target_time_iso"],
