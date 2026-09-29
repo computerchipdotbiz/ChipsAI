@@ -106,6 +106,41 @@ def calculate_next_occurrence(current_time_iso: str, recurrence: str) -> Optiona
                 next_dt += timedelta(days=7)
             return next_dt.isoformat()
 
+        elif recurrence.startswith("days:"):
+            # e.g. "days:tue,thu"
+            day_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+            raw_days = recurrence.split(":", 1)[1].lower().split(",")
+            target_weekdays = set()
+            for d in raw_days:
+                d = d.strip()
+                if d in day_map:
+                    target_weekdays.add(day_map[d])
+                elif d.isdigit():
+                    target_weekdays.add(int(d))
+
+            if target_weekdays:
+                next_dt = dt + timedelta(days=1)
+                while next_dt.weekday() not in target_weekdays:
+                    next_dt += timedelta(days=1)
+                while next_dt <= now:
+                    next_dt += timedelta(days=1)
+                    while next_dt.weekday() not in target_weekdays:
+                        next_dt += timedelta(days=1)
+                return next_dt.isoformat()
+
+        elif recurrence.startswith("monthly:"):
+            # e.g. "monthly:6,21"
+            dates = sorted([int(x.strip()) for x in recurrence.split(":", 1)[1].split(",") if x.strip().isdigit()])
+            if dates:
+                next_dt = dt + timedelta(days=1)
+                while next_dt.day not in dates:
+                    next_dt += timedelta(days=1)
+                while next_dt <= now:
+                    next_dt += timedelta(days=1)
+                    while next_dt.day not in dates:
+                        next_dt += timedelta(days=1)
+                return next_dt.isoformat()
+
     except Exception:
         pass
     return None

@@ -21,8 +21,12 @@ def check_and_send_due_reminders():
             user_phone = item["user_phone"]
             text = item["reminder_text"]
 
-            body = f"⏰ ChipAI Reminder: {text}"
-            logger.info(f"Sending due reminder #{reminder_id} to {user_phone}: {text}")
+            if "quote" in text.lower():
+                import assistant
+                body = assistant.generate_daily_quote()
+            else:
+                body = f"⏰ ChipAI Reminder: {text}"
+            logger.info(f"Sending due reminder #{reminder_id} to {user_phone}: {body[:50]}...")
 
             if user_phone.startswith("tg_"):
                 chat_id = user_phone.replace("tg_", "")

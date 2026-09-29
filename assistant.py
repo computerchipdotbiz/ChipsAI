@@ -302,3 +302,30 @@ def process_message(user_phone: str, incoming_text: str) -> str:
     except Exception as e:
         logger.error(f"Fatal error in Gemini assistant processing: {e}", exc_info=True)
         return "Sorry, I encountered an internal error. Please try again shortly."
+
+
+def generate_daily_quote() -> str:
+    """Generate a grounded, punchy, authentic daily self-love and inspirational quote for Chip."""
+    prompt = """Generate a fresh, daily inspirational and self-love quote specifically for Chip (49-year-old IT pro, father, partner).
+Guidelines:
+- Grounded, authentic, sharp, and direct.
+- Zero cheesy corporate motivational fluff, zero sycophantic praise, zero toxic positivity.
+- Acknowledge resilience, quiet strength, craftsmanship, and showing up for the people you love.
+- Strictly ban em dashes (—). Use clean punctuation.
+- Keep it under 2 sentences.
+Format:
+Start with: 💡 ChipAI Daily Fuel:
+Then the quote."""
+    try:
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        res = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+        )
+        quote = (res.text or "").strip()
+        quote = quote.replace("—", ", ").replace("–", "-")
+        return quote
+    except Exception as e:
+        logger.error(f"Failed to generate daily quote: {e}")
+        return "💡 ChipAI Daily Fuel: You built the foundation. Now keep steady, trust your craft, and take care of your people today."
