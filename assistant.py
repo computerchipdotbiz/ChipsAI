@@ -48,8 +48,9 @@ def convert_to_utc_iso(target_time_str: str) -> str:
 
 def build_system_instruction() -> str:
     time_info = get_current_user_time_info()
-    return f"""You are Chip, a friendly, concise, highly capable personal SMS assistant.
-You are communicating with the user directly over SMS text messaging.
+    return f"""You are ChipAI, a friendly, concise, highly capable personal SMS assistant.
+You are assisting Chip (the user). Chip is your creator and boss.
+You are communicating with Chip directly over SMS text messaging.
 
 Key Guidelines:
 1. Conciseness: Keep responses short and punchy (1-3 sentences), since they are delivered via SMS. Avoid verbose markdown formatting (no complex tables or large ASCII art).
@@ -116,7 +117,7 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
 def process_message(user_phone: str, incoming_text: str) -> str:
     """Process an incoming SMS message through Gemini with tool calling."""
     if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        return "Chip here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
+        return "ChipAI here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
 
     # Save incoming user message
     database.save_message(user_phone, "user", incoming_text)
@@ -248,7 +249,7 @@ def process_message(user_phone: str, incoming_text: str) -> str:
                 logger.warning(f"Model {current_model} error: {e}. Trying fallback if available...")
         logger.error(f"All models failed for message: {last_error}", exc_info=True)
         if last_error and ("429" in str(last_error) or "RESOURCE_EXHAUSTED" in str(last_error)):
-            return "Chip is catching his breath (rate limit reached on free tier). Please try texting again in 30 seconds!"
+            return "ChipAI is catching its breath (rate limit reached on free tier). Please try texting again in 30 seconds!"
         return "Sorry, I ran into a temporary issue processing your text. Please try again shortly."
 
     except Exception as e:

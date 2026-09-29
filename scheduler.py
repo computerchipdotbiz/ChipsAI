@@ -21,7 +21,7 @@ def check_and_send_due_reminders():
             user_phone = item["user_phone"]
             text = item["reminder_text"]
 
-            body = f"⏰ Chip Reminder: {text}"
+            body = f"⏰ ChipAI Reminder: {text}"
             logger.info(f"Sending due reminder #{reminder_id} to {user_phone}: {text}")
 
             sent = twilio_service.send_sms(user_phone, body)
