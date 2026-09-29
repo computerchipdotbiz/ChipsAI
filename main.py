@@ -48,7 +48,7 @@ def root():
         "status": "online",
         "service": "ChipAI SMS Assistant",
         "timezone": os.getenv("USER_TIMEZONE", "America/Chicago"),
-        "model": os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     }
 
 

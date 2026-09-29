@@ -12,7 +12,7 @@ logger = logging.getLogger("chipai.assistant")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 USER_TIMEZONE = os.getenv("USER_TIMEZONE", "America/Chicago")
-MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 
 def get_current_user_time_info() -> dict:
@@ -197,47 +197,60 @@ def process_message(user_phone: str, incoming_text: str) -> str:
             temperature=0.7,
         )
 
-        response = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=contents,
-            config=config,
-        )
+        models_to_try = [MODEL_NAME]
+        if MODEL_NAME != "gemini-3.5-flash-lite":
+            models_to_try.append("gemini-3.5-flash-lite")
 
-        # Handle tool calling loop
-        while response.function_calls:
-            call = response.function_calls[0]
-            tool_name = call.name
-            args = dict(call.args) if call.args else {}
-
-            tool_result = execute_tool(tool_name, args, user_phone)
-
-            # Append model's tool call & function response to contents
-            contents.append(response.candidates[0].content)
-            contents.append(
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_function_response(
-                            name=tool_name,
-                            response={"result": tool_result},
-                        )
-                    ],
+        last_error = None
+        for current_model in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=current_model,
+                    contents=contents,
+                    config=config,
                 )
-            )
 
-            # Follow-up generation after tool execution
-            response = client.models.generate_content(
-                model=MODEL_NAME,
-                contents=contents,
-                config=config,
-            )
+                # Handle tool calling loop
+                while response.function_calls:
+                    call = response.function_calls[0]
+                    tool_name = call.name
+                    args = dict(call.args) if call.args else {}
 
-        reply = response.text or "I got your message!"
-        database.save_message(user_phone, "model", reply)
-        return reply
+                    tool_result = execute_tool(tool_name, args, user_phone)
+
+                    # Append model's tool call & function response to contents
+                    contents.append(response.candidates[0].content)
+                    contents.append(
+                        types.Content(
+                            role="user",
+                            parts=[
+                                types.Part.from_function_response(
+                                    name=tool_name,
+                                    response={"result": tool_result},
+                                )
+                            ],
+                        )
+                    )
+
+                    # Follow-up generation after tool execution
+                    response = client.models.generate_content(
+                        model=current_model,
+                        contents=contents,
+                        config=config,
+                    )
+
+                reply = response.text or "I got your message!"
+                database.save_message(user_phone, "model", reply)
+                return reply
+
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Model {current_model} error: {e}. Trying fallback if available...")
+        logger.error(f"All models failed for message: {last_error}", exc_info=True)
+        if last_error and ("429" in str(last_error) or "RESOURCE_EXHAUSTED" in str(last_error)):
+            return "Chip is catching his breath (rate limit reached on free tier). Please try texting again in 30 seconds!"
+        return "Sorry, I ran into a temporary issue processing your text. Please try again shortly."
 
     except Exception as e:
-        logger.error(f"Error in Gemini assistant processing: {e}", exc_info=True)
-        # Fallback error message
-        fallback = f"Chip error: {e}"
-        return fallback
+        logger.error(f"Fatal error in Gemini assistant processing: {e}", exc_info=True)
+        return "Sorry, I encountered an internal error. Please try again shortly."

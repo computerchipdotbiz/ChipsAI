@@ -7,11 +7,19 @@ from typing import List, Dict, Any, Generator
 DB_FILE = os.getenv("DATABASE_PATH", "reminders.db")
 
 
+_initialized_dbs = set()
+
+
 @contextmanager
 def get_db(db_path: str = DB_FILE) -> Generator[sqlite3.Connection, None, None]:
     """Context manager for SQLite connections that ensures commit and proper closure."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
+
+    if db_path not in _initialized_dbs:
+        _create_tables(conn)
+        _initialized_dbs.add(db_path)
+
     try:
         yield conn
         conn.commit()
@@ -22,37 +30,43 @@ def get_db(db_path: str = DB_FILE) -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
+def _create_tables(conn: sqlite3.Connection) -> None:
+    """Create tables on an existing open connection."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_phone TEXT NOT NULL,
+            reminder_text TEXT NOT NULL,
+            scheduled_time TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            sent_at TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS conversation_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_phone TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, scheduled_time)"
+    )
+    conn.commit()
+
+
 def init_db(db_path: str = DB_FILE) -> None:
     """Initialize database tables for reminders and message history."""
-    with get_db(db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS reminders (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_phone TEXT NOT NULL,
-                reminder_text TEXT NOT NULL,
-                scheduled_time TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                created_at TEXT NOT NULL,
-                sent_at TEXT
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS conversation_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_phone TEXT NOT NULL,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, scheduled_time)"
-        )
+    with get_db(db_path):
+        pass
 
 
 def add_reminder(
