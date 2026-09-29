@@ -46,6 +46,34 @@ def send_message(chat_id: str | int, text: str) -> bool:
         return False
 
 
+def send_voice(chat_id: str | int, audio_bytes: bytes, caption: str = "") -> bool:
+    """Send an outbound playable Telegram voice message (waveform bubble)."""
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        logger.warning(f"[MOCK TG] Outbound voice to {chat_id}: {len(audio_bytes)} bytes (TELEGRAM_BOT_TOKEN not configured)")
+        return False
+
+    url = f"https://api.telegram.org/bot{token}/sendVoice"
+    files = {"voice": ("voice.mp3", audio_bytes, "audio/mpeg")}
+    data = {"chat_id": str(chat_id)}
+    if caption:
+        data["caption"] = caption[:1024]
+
+    try:
+        import requests
+        resp = requests.post(url, data=data, files=files, timeout=25)
+        res_json = resp.json()
+        if res_json.get("ok"):
+            logger.info(f"Telegram voice message sent to {chat_id}")
+            return True
+        else:
+            logger.error(f"Telegram sendVoice failed: {res_json}")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to send voice message to {chat_id}: {e}")
+        return False
+
+
 def set_webhook(webhook_url: str) -> bool:
     """Register the webhook URL with Telegram."""
     token = TELEGRAM_BOT_TOKEN

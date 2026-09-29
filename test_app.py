@@ -100,8 +100,9 @@ def test_telegram_voice_webhook(monkeypatch):
     monkeypatch.setattr("telegram_service.download_file_by_id", lambda file_id: b"fake_audio_bytes")
     monkeypatch.setattr("assistant.transcribe_audio", lambda audio_bytes, mime_type: "Hello from voice")
     monkeypatch.setattr("assistant.process_message", lambda user_phone, incoming_text: f"Echo: {incoming_text}")
-    sent_msgs = []
-    monkeypatch.setattr("telegram_service.send_message", lambda chat_id, text: sent_msgs.append((chat_id, text)) or True)
+    monkeypatch.setattr("tts_service.text_to_speech", lambda text: b"fake_voice_bytes")
+    sent_voices = []
+    monkeypatch.setattr("telegram_service.send_voice", lambda chat_id, voice_bytes, caption="": sent_voices.append((chat_id, voice_bytes, caption)) or True)
 
     payload = {
         "message": {
@@ -112,5 +113,6 @@ def test_telegram_voice_webhook(monkeypatch):
     resp = client.post("/telegram", json=payload)
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
-    assert len(sent_msgs) == 1
-    assert sent_msgs[0][1] == "Echo: Hello from voice"
+    assert len(sent_voices) == 1
+    assert sent_voices[0][1] == b"fake_voice_bytes"
+    assert sent_voices[0][2] == "Echo: Hello from voice"

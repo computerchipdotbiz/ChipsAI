@@ -9,6 +9,7 @@ import scheduler
 import assistant
 import twilio_service
 import telegram_service
+import tts_service
 
 load_dotenv()
 
@@ -120,8 +121,10 @@ async def incoming_telegram(request: Request):
             return {"ok": True}
 
         # Check for incoming voice memo or audio file
+        is_voice = False
         voice = message.get("voice") or message.get("audio")
         if voice and not text:
+            is_voice = True
             file_id = voice.get("file_id")
             mime_type = voice.get("mime_type", "audio/ogg")
             logger.info(f"Incoming Telegram voice note from {chat_id} (file_id: {file_id}, mime: {mime_type})")
@@ -152,9 +155,18 @@ async def incoming_telegram(request: Request):
             user_identifier = f"tg_{chat_id}"
             reply_text = assistant.process_message(user_phone=user_identifier, incoming_text=text)
 
-        # Dispatch reply back to Telegram
+        # Dispatch reply back to Telegram (Mirror mode: voice gets voice, text gets text)
+        if is_voice:
+            voice_bytes = tts_service.text_to_speech(reply_text)
+            if voice_bytes:
+                sent = telegram_service.send_voice(chat_id, voice_bytes, caption=reply_text)
+                logger.info(f"Dispatched Telegram voice reply to {chat_id}, success: {sent}")
+                return {"ok": True}
+            else:
+                logger.warning(f"TTS generation returned empty; falling back to text for {chat_id}")
+
         sent = telegram_service.send_message(chat_id, reply_text)
-        logger.info(f"Dispatched Telegram reply to {chat_id}, success: {sent}")
+        logger.info(f"Dispatched Telegram text reply to {chat_id}, success: {sent}")
         return {"ok": True}
     except Exception as e:
         logger.error(f"Error handling Telegram webhook: {e}", exc_info=True)
