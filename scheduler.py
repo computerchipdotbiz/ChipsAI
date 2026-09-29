@@ -24,13 +24,19 @@ def check_and_send_due_reminders():
             body = f"⏰ ChipAI Reminder: {text}"
             logger.info(f"Sending due reminder #{reminder_id} to {user_phone}: {text}")
 
-            sent = twilio_service.send_sms(user_phone, body)
+            if user_phone.startswith("tg_"):
+                chat_id = user_phone.replace("tg_", "")
+                import telegram_service
+                sent = telegram_service.send_message(chat_id, body)
+            else:
+                sent = twilio_service.send_sms(user_phone, body)
+
             # Mark sent even in mock mode to avoid endless duplicate loops
             database.mark_reminder_sent(reminder_id)
             if sent:
                 logger.info(f"Reminder #{reminder_id} sent successfully.")
             else:
-                logger.warning(f"Reminder #{reminder_id} processed (outbound SMS may be in mock mode).")
+                logger.warning(f"Reminder #{reminder_id} processed.")
 
     except Exception as e:
         logger.error(f"Error checking due reminders: {e}", exc_info=True)

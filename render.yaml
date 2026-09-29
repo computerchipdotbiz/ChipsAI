@@ -21,3 +21,5 @@ services:
         sync: false
       - key: USER_TIMEZONE
         value: America/Chicago
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false

@@ -1,13 +1,14 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Form, HTTPException, Response, status
+from fastapi import FastAPI, Form, HTTPException, Response, Request, status
 from dotenv import load_dotenv
 
 import database
 import scheduler
 import assistant
 import twilio_service
+import telegram_service
 
 load_dotenv()
 
@@ -28,6 +29,16 @@ async def lifespan(app: FastAPI):
     logger.info("Starting background reminder scheduler...")
     scheduler.start_scheduler(interval_seconds=15)
 
+    # Auto-register Telegram webhook if bot token is configured
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    base_url = os.getenv("RENDER_EXTERNAL_URL", "https://chipsai.onrender.com")
+    if tg_token:
+        try:
+            telegram_service.set_webhook(f"{base_url}/telegram")
+            logger.info(f"Registered Telegram webhook at {base_url}/telegram")
+        except Exception as e:
+            logger.warning(f"Could not register Telegram webhook: {e}")
+
     yield
 
     logger.info("Stopping background reminder scheduler...")
@@ -35,8 +46,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="ChipAI - Personal SMS Assistant",
-    description="24/7 Always-On Gemini SMS Assistant with Proactive Reminders",
+    title="ChipAI - Personal AI Assistant",
+    description="24/7 Always-On Gemini Assistant with Proactive Reminders",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -84,6 +95,42 @@ async def incoming_sms(
     # Return Twilio Messaging Response XML
     twiml_xml = twilio_service.build_twiml_response(reply_text)
     return Response(content=twiml_xml, media_type="application/xml")
+
+
+@app.post("/telegram")
+async def incoming_telegram(request: Request):
+    """
+    Telegram webhook endpoint for incoming messages.
+    Validates sender against whitelist, passes text to Gemini, and replies via Telegram Bot API.
+    """
+    try:
+        data = await request.json()
+        message = data.get("message") or data.get("edited_message")
+        if not message:
+            return {"ok": True}
+
+        chat_id = message.get("chat", {}).get("id")
+        text = message.get("text", "").strip()
+
+        if not chat_id or not text:
+            return {"ok": True}
+
+        logger.info(f"Incoming Telegram from {chat_id}: '{text}'")
+
+        if not telegram_service.is_authorized_tg(chat_id):
+            logger.warning(f"Unauthorized Telegram chat_id: {chat_id}")
+            return {"ok": True}
+
+        # Process message through Gemini
+        user_identifier = f"tg_{chat_id}"
+        reply_text = assistant.process_message(user_phone=user_identifier, incoming_text=text)
+
+        # Dispatch reply back to Telegram
+        telegram_service.send_message(chat_id, reply_text)
+        return {"ok": True}
+    except Exception as e:
+        logger.error(f"Error handling Telegram webhook: {e}", exc_info=True)
+        return {"ok": False, "error": str(e)}
 
 
 @app.post("/api/reminders/check")
