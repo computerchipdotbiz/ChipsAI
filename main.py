@@ -144,6 +144,18 @@ def trigger_reminder_check():
     return {"status": "triggered"}
 
 
+@app.get("/api/reminders")
+def get_reminders_status():
+    """Inspect all reminders and recent conversation history."""
+    with database.get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM reminders ORDER BY id DESC")
+        reminders = [dict(r) for r in cursor.fetchall()]
+        cursor.execute("SELECT * FROM conversation_history ORDER BY id DESC LIMIT 10")
+        history = [dict(h) for h in cursor.fetchall()]
+        return {"count": len(reminders), "reminders": reminders, "recent_history": history}
+
+
 if __name__ == "__main__":
     import uvicorn
 

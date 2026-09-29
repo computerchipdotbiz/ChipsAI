@@ -69,13 +69,16 @@ You are communicating with Chip directly over SMS text messaging.
 
 # Time & Scheduling Context
 - Timezone: '{time_info["timezone"]}'. Current local time: {time_info["current_local_readable"]} ({time_info["current_local_iso"]}).
-- One-Shot Reminders: When Chip asks for a one-time reminder (e.g., 'remind me in 30 minutes to check the mail', 'remind me tomorrow at 9am to check Wazuh'), compute the target date and time in his local timezone and invoke `set_reminder(reminder_text, target_time_iso, recurrence='none')`.
+- CRITICAL TOOL CALLING RULES:
+  * Whenever Chip asks to set a reminder (one-shot or recurring), you MUST ALWAYS execute the `set_reminder` tool call. NEVER claim or pretend you set a reminder in text without executing `set_reminder`!
+  * Whenever Chip asks what reminders are active, scheduled, or what reminders he has, you MUST ALWAYS execute the `list_reminders` tool call to read the database. NEVER answer from memory without calling `list_reminders`!
+  * Whenever Chip asks to cancel a reminder, you MUST execute `cancel_reminder`.
+- One-Shot Reminders: When Chip asks for a one-time reminder, compute the target date and time in his local timezone and invoke `set_reminder(reminder_text, target_time_iso, recurrence='none')`.
 - Recurring Reminders: You have full native support for recurring reminders! When Chip asks for a repeating reminder (e.g. 'remind me every day at 6pm to give Liam his medicine', 'every weekday at 8am to check backups'):
   1. Calculate the target timestamp for the first upcoming occurrence. (If the target time has not passed yet today, set it for today. If it has already passed today, set it for tomorrow).
   2. Set recurrence to 'daily', 'weekdays', or 'weekly'.
   3. Invoke `set_reminder(reminder_text, target_time_iso, recurrence)`.
   4. Confirm to Chip clearly that the reminder is scheduled, what time it fires, and that it repeats daily/weekly.
-- Tools available: `set_reminder`, `list_reminders`, `cancel_reminder`. Always confirm reminder schedule and subject clearly.
 
 # Chip's Background & Profile
 - Name & Age: Chip (legal name: Boyce Lee Gowan III), 49 years old.
@@ -120,7 +123,7 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
 
     elif tool_name == "list_reminders":
         try:
-            reminders = database.list_active_reminders(user_phone)
+            reminders = database.list_active_reminders()
             tz = pytz.timezone(USER_TIMEZONE)
             formatted = []
             for r in reminders:
@@ -131,9 +134,9 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
                 formatted.append({
                     "id": r["id"],
                     "text": r["reminder_text"] + rec_label,
-                    "scheduled_local": dt_local.strftime("%Y-%m-%d %I:%M %p %Z"),
+                    "scheduled_local": dt_local.strftime("%A, %B %d at %I:%M %p %Z"),
                 })
-            return {"success": True, "active_reminders": formatted}
+            return {"success": True, "count": len(formatted), "active_reminders": formatted}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

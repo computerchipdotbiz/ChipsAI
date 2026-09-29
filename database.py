@@ -184,24 +184,23 @@ def mark_reminder_sent(reminder_id: int, db_path: str = DB_FILE) -> None:
         )
 
 
-def list_active_reminders(user_phone: str, db_path: str = DB_FILE) -> List[Dict[str, Any]]:
-    """List pending upcoming reminders for the user."""
+def list_active_reminders(user_phone: Optional[str] = None, db_path: str = DB_FILE) -> List[Dict[str, Any]]:
+    """List pending upcoming reminders for Chip across all channels."""
     with get_db(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             SELECT id, reminder_text, scheduled_time, created_at, recurrence
             FROM reminders
-            WHERE user_phone = ? AND status = 'pending'
+            WHERE status = 'pending'
             ORDER BY scheduled_time ASC
-            """,
-            (user_phone,),
+            """
         )
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
 
 
-def cancel_reminder(reminder_id: int, user_phone: str, db_path: str = DB_FILE) -> bool:
+def cancel_reminder(reminder_id: int, user_phone: Optional[str] = None, db_path: str = DB_FILE) -> bool:
     """Cancel a pending reminder."""
     with get_db(db_path) as conn:
         cursor = conn.cursor()
@@ -209,9 +208,9 @@ def cancel_reminder(reminder_id: int, user_phone: str, db_path: str = DB_FILE) -
             """
             UPDATE reminders
             SET status = 'cancelled'
-            WHERE id = ? AND user_phone = ? AND status = 'pending'
+            WHERE id = ? AND status = 'pending'
             """,
-            (reminder_id, user_phone),
+            (reminder_id,),
         )
         return cursor.rowcount > 0
 
