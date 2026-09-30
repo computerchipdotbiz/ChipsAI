@@ -236,6 +236,38 @@ async def handle_telegram_message(message: dict):
             else:
                 reply_text = "Usage: `/remember <fact to remember>`"
 
+        elif clean_lower.startswith("/ebook") or clean_lower.startswith("/books"):
+            # Check for query
+            query = ""
+            for prefix in ["/ebooks", "/ebook", "/books", "/book"]:
+                if clean_lower.startswith(prefix):
+                    query = text[len(prefix):].strip()
+                    break
+
+            summary = database.get_ebook_library_summary()
+            if not query:
+                sample = database.search_ebooks(limit=10)
+                fmt_str = ", ".join(f"{fmt}: {cnt}" for fmt, cnt in summary.get("formats", {}).items())
+                lines = [
+                    f"📚 **Sarahzine Ebook Library:**\n",
+                    f"You have **{summary['total_books']}** ebooks indexed under `Z:\\My Drive\\03_Reading & Library\\Ebooks`.\n",
+                    f"**Formats:** {fmt_str}\n",
+                    "**Featured / Sample Titles:**",
+                ]
+                for b in sample:
+                    lines.append(f"• **{b['title']}** `[{b['format']}]`")
+                lines.append("\n_Search your full library anytime with `/ebook <title or keyword>`!_")
+                reply_text = "\n".join(lines)
+            else:
+                matches = database.search_ebooks(query=query, limit=15)
+                if not matches:
+                    reply_text = f"📚 No ebooks found matching '{query}'. You have {summary['total_books']} total books indexed."
+                else:
+                    lines = [f"📚 Found {len(matches)} ebook(s) matching '{query}':\n"]
+                    for b in matches:
+                        lines.append(f"• **{b['title']}** `[{b['format']} - {b['size_mb']}MB]`\n  📁 _{b['category']}_")
+                    reply_text = "\n".join(lines)
+
         else:
             # Process message through Gemini
             reply_text = assistant.process_message(user_phone=user_identifier, incoming_text=text)
@@ -418,6 +450,41 @@ def delete_memory_api(
     """Delete a memory by its ID."""
     ok = database.delete_user_memory(memory_id, user_phone=user_id)
     return {"status": "ok", "deleted": ok, "memory_id": memory_id}
+
+
+@app.get("/api/ebooks")
+def get_ebooks_api(query: str = ""):
+    """List or search indexed ebooks."""
+    summary = database.get_ebook_library_summary()
+    books = database.search_ebooks(query=query, limit=50)
+    return {
+        "status": "ok",
+        "total_in_library": summary["total_books"],
+        "match_count": len(books),
+        "query": query,
+        "books": books,
+    }
+
+
+@app.post("/api/proactive/evening")
+def trigger_evening_decompression():
+    """Manual trigger to evaluate and dispatch evening decompression check-in."""
+    scheduler.check_and_send_evening_decompression()
+    return {"status": "evening_decompression_checked"}
+
+
+@app.get("/api/weather/alerts")
+def get_weather_alerts_api():
+    """Fetch active severe weather warnings for Mansfield from NWS."""
+    alerts = assistant.check_nws_weather_alerts()
+    return {"status": "ok", "alert_count": len(alerts), "alerts": alerts}
+
+
+@app.post("/api/weather/check")
+def trigger_weather_check():
+    """Manual trigger to poll NWS and dispatch any active weather alerts."""
+    scheduler.check_and_send_weather_alerts()
+    return {"status": "weather_alerts_checked"}
 
 
 if __name__ == "__main__":

@@ -385,4 +385,53 @@ def test_api_memories_endpoint(test_db, monkeypatch):
     assert res3.json()["deleted"] is True
 
 
+def test_ebook_indexing_and_search():
+    summary = database.get_ebook_library_summary()
+    assert summary["total_books"] > 0
+    assert "EPUB" in summary["formats"] or "PDF" in summary["formats"]
+
+    # Search for SQL or IT
+    results = database.search_ebooks("SQL")
+    assert len(results) >= 1
+    assert any("sql" in r["title"].lower() for r in results)
+
+    # Search all
+    all_books = database.search_ebooks("all", limit=5)
+    assert len(all_books) == 5
+
+
+def test_evening_decompression_message():
+    import assistant
+    msg = assistant.generate_evening_decompression()
+    assert msg is not None
+    assert len(msg) > 10
+    assert "—" not in msg
+    assert "wins" in msg.lower() or "loose ends" in msg.lower() or "relax" in msg.lower() or "tonight" in msg.lower()
+
+
+def test_weather_alert_formatter():
+    import assistant
+    mock_alert = {
+        "event": "Flood Watch",
+        "headline": "Flood Watch issued for Tarrant and Johnson Counties",
+        "instruction": "Do not drive across flooded roads. Monitor local forecasts.",
+    }
+    msg = assistant.format_weather_alert_message(mock_alert)
+    assert "SEVERE WEATHER ALERT: FLOOD WATCH" in msg
+    assert "Tarrant and Johnson" in msg
+    assert "Do not drive" in msg
+    assert "—" not in msg
+
+
+def test_api_ebooks_endpoint():
+    client = TestClient(app)
+    res = client.get("/api/ebooks")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert data["total_in_library"] > 0
+    assert len(data["books"]) > 0
+
+
+
 

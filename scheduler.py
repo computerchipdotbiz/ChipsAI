@@ -169,6 +169,71 @@ def check_and_send_random_friend_checkin():
         logger.error(f"Error checking random friend check-in: {e}", exc_info=True)
 
 
+def check_and_send_evening_decompression():
+    """Evening shutdown check-in around 8:30 PM Central.
+    Dedupes so it only fires once per day.
+    """
+    try:
+        import pytz
+        tz = pytz.timezone(os.getenv("USER_TIMEZONE", "America/Chicago"))
+        now_local = datetime.now(tz)
+
+        # Trigger window: 8:25 PM to 9:15 PM (20:25 - 21:15)
+        if now_local.hour != 20 and (now_local.hour != 21 or now_local.minute > 15):
+            return
+
+        default_chat_id = os.getenv("TELEGRAM_CHAT_ID", "5127043704")
+        user_phone = f"tg_{default_chat_id}"
+        date_str = now_local.strftime("%Y-%m-%d")
+        subject_key = f"evening_decompression_{date_str}"
+
+        if database.has_proactive_checkin_been_sent(user_phone, subject_key):
+            return
+
+        msg = assistant.generate_evening_decompression(user_phone)
+        chat_id = _resolve_telegram_chat_id(user_phone)
+        sent = telegram_service.send_message(chat_id, msg)
+        if sent:
+            database.save_message(user_phone, "model", msg)
+            database.record_proactive_checkin(
+                user_phone, "evening_decompression", subject_key, "Evening shutdown / cognitive decompression", msg
+            )
+            logger.info(f"Evening decompression check-in sent to Telegram {chat_id}.")
+    except Exception as e:
+        logger.error(f"Error checking evening decompression: {e}", exc_info=True)
+
+
+def check_and_send_weather_alerts():
+    """Check National Weather Service for active severe weather warnings in Mansfield/DFW.
+    Dedupes so each unique alert ID is only sent once.
+    """
+    try:
+        alerts = assistant.check_nws_weather_alerts()
+        if not alerts:
+            return
+
+        default_chat_id = os.getenv("TELEGRAM_CHAT_ID", "5127043704")
+        user_phone = f"tg_{default_chat_id}"
+        chat_id = _resolve_telegram_chat_id(user_phone)
+
+        for alert in alerts:
+            alert_id = alert["id"]
+            subject_key = f"weather_alert_{alert_id}"
+
+            if database.has_proactive_checkin_been_sent(user_phone, subject_key):
+                continue
+
+            msg = assistant.format_weather_alert_message(alert)
+            sent = telegram_service.send_message(chat_id, msg)
+            if sent:
+                database.record_proactive_checkin(
+                    user_phone, "weather_alert", subject_key, alert.get("headline", ""), msg
+                )
+                logger.info(f"Severe weather alert sent ({alert.get('event')}) to Telegram {chat_id}.")
+    except Exception as e:
+        logger.error(f"Error checking weather alerts: {e}", exc_info=True)
+
+
 def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
     """Start the background scheduler for reminders, event prep, and friend check-ins."""
     global _scheduler
@@ -204,8 +269,26 @@ def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
         replace_existing=True,
     )
 
+    # 4. Evening decompression check-in (checks every 10m around 8:30pm)
+    _scheduler.add_job(
+        check_and_send_evening_decompression,
+        "interval",
+        minutes=10,
+        id="check_evening_decompression_job",
+        replace_existing=True,
+    )
+
+    # 5. Severe weather radar alerts (checks NWS every 5m)
+    _scheduler.add_job(
+        check_and_send_weather_alerts,
+        "interval",
+        minutes=5,
+        id="check_weather_alerts_job",
+        replace_existing=True,
+    )
+
     _scheduler.start()
-    logger.info(f"Background scheduler started with reminders (15s), event prep (5m), and friend check-ins (30m).")
+    logger.info("Background scheduler started with reminders, event prep, friend pings, evening decompression, and weather radar.")
     return _scheduler
 
 

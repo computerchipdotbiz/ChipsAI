@@ -1,4 +1,5 @@
 import os
+import json
 import sqlite3
 import logging
 from contextlib import contextmanager
@@ -781,5 +782,54 @@ def format_user_memories_summary(user_phone: str, limit: int = 20, db_path: str 
         det = m.get("detail", "")
         lines.append(f"- [{cat}/{sub}]: {det}")
     return "\n".join(lines)
+
+
+def load_ebook_index() -> list:
+    """Load cached ebook metadata from ebook_index.json."""
+    index_file = os.path.join(os.path.dirname(__file__), "ebook_index.json")
+    if not os.path.exists(index_file):
+        return []
+    try:
+        with open(index_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("books", [])
+    except Exception as e:
+        logger.error(f"Error reading ebook index: {e}")
+        return []
+
+
+def search_ebooks(query: str = "", limit: int = 25) -> list:
+    """Search indexed ebooks by title, category, format, or filename."""
+    books = load_ebook_index()
+    if not query or query.strip().lower() in ["all", "*", "everything", "list"]:
+        return books[:limit]
+
+    q_terms = query.strip().lower().split()
+    results = []
+    for b in books:
+        searchable = f"{b['title']} {b.get('category', '')} {b.get('format', '')} {b['file_name']}".lower()
+        if all(term in searchable for term in q_terms):
+            results.append(b)
+            if len(results) >= limit:
+                break
+    return results
+
+
+def get_ebook_library_summary() -> dict:
+    """Return summary statistics of the indexed ebook collection."""
+    books = load_ebook_index()
+    total = len(books)
+    formats = {}
+    categories = {}
+    for b in books:
+        fmt = b.get("format", "OTHER")
+        formats[fmt] = formats.get(fmt, 0) + 1
+        cat = b.get("category", "General")
+        categories[cat] = categories.get(cat, 0) + 1
+    return {
+        "total_books": total,
+        "formats": formats,
+        "categories": categories,
+    }
 
 

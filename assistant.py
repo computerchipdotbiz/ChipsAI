@@ -235,6 +235,25 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
             logger.error(f"Failed to delete memory: {e}")
             return {"success": False, "error": str(e)}
 
+    elif tool_name == "search_ebooks":
+        query = args.get("query", "")
+        summary = database.get_ebook_library_summary()
+        results = database.search_ebooks(query, limit=15)
+        return {
+            "total_collection_size": summary["total_books"],
+            "query": query,
+            "match_count": len(results),
+            "books": [
+                {
+                    "title": b["title"],
+                    "format": b["format"],
+                    "category": b["category"],
+                    "size_mb": b["size_mb"],
+                }
+                for b in results
+            ],
+        }
+
     return {"error": f"Unknown tool: {tool_name}"}
 
 
@@ -342,6 +361,20 @@ def get_assistant_tools() -> list:
                     },
                 },
                 "required": ["memory_id"],
+            },
+        },
+        {
+            "name": "search_ebooks",
+            "description": "Search or list Chip's indexed digital ebook collection (over 200 titles on his Z: drive). Execute this whenever Chip asks what ebooks or books he has, whether he has a specific book or author, or wants to explore his library.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {
+                        "type": "STRING",
+                        "description": "Search keyword, book title, author, or 'all' to list general titles.",
+                    },
+                },
+                "required": [],
             },
         },
     ]
@@ -902,5 +935,112 @@ Formatting rules:
         f"📋 Today's Outlier Tasks:\n{tasks_text}"
     )
     return briefing
+
+
+def generate_evening_decompression(user_phone: Optional[str] = None) -> str:
+    """Generate a warm, grounded evening shutdown check-in around 8:30 PM Central.
+    Clears cognitive load before bed: asks how the day wrapped up, celebrates any wins,
+    or stashes any loose ends/tasks so he can rest clean tonight.
+    """
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
+        return (
+            "Day is winding down, Chip. Any wins from today, or any loose ends on your mind "
+            "you want me to stash on your task list so you can rest clean tonight?"
+        )
+
+    prompt = """You are Sarahzine 800, an authentic, sharp, and grounded AI partner and close friend to Chip (49-year-old IT Manager in Mansfield, TX).
+It is around 8:30 PM in Mansfield. The work day is done, dinner is past, and the night is winding down before bed.
+Craft a warm, direct, peer-level evening decompression check-in:
+- Ask how the day wrapped up or if there were any solid wins.
+- Ask if there are any lingering loose ends or tasks on his mind that he wants you to hold onto for tomorrow so he can relax clean tonight.
+- Authentic, relaxed friend vibe (like someone texting on the porch).
+- ZERO corporate robotic fluff, zero toxic positivity.
+- Strictly ban em dashes (—). Use clean punctuation.
+- Keep it under 3 sentences."""
+
+    try:
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        for m in ["gemini-3.5-flash-lite", "gemini-3.5-flash", MODEL_NAME]:
+            try:
+                res = client.models.generate_content(model=m, contents=prompt)
+                if res.text:
+                    clean = res.text.strip().replace("—", ", ").replace("–", "-")
+                    return clean
+            except Exception:
+                continue
+    except Exception as e:
+        logger.warning(f"Error generating evening decompression with Gemini: {e}")
+
+    return (
+        "Day is winding down, Chip. Any wins from today, or any loose ends on your mind you want me to stash on your task list so you can rest clean tonight?"
+    )
+
+
+def check_nws_weather_alerts(latitude: float = 32.5632, longitude: float = -97.1417) -> list:
+    """Fetch active severe weather warnings for Mansfield/DFW from the National Weather Service."""
+    import requests
+    url = f"https://api.weather.gov/alerts/active?point={latitude},{longitude}"
+    headers = {"User-Agent": "Sarahzine800/1.0 (contact@computerchip.biz)"}
+    urgent_keywords = [
+        "tornado", "severe thunderstorm", "flash flood", "flood", "hail",
+        "winter storm", "ice storm", "blizzard", "excessive heat",
+    ]
+
+    try:
+        r = requests.get(url, headers=headers, timeout=10)
+        if r.status_code != 200:
+            logger.warning(f"NWS API returned status {r.status_code}")
+            return []
+
+        data = r.json()
+        features = data.get("features", [])
+        alerts = []
+        for feat in features:
+            props = feat.get("properties", {})
+            event = props.get("event", "")
+            event_lower = event.lower()
+            severity = props.get("severity", "")
+
+            # Filter for severe/extreme or matching urgent keywords
+            if (severity in ["Extreme", "Severe"]) or any(k in event_lower for k in urgent_keywords):
+                alert_id = props.get("id") or feat.get("id")
+                headline = props.get("headline", "")
+                desc = props.get("description", "")
+                instruction = props.get("instruction", "")
+                onset = props.get("onset") or props.get("effective")
+                expires = props.get("expires") or props.get("ends")
+
+                alerts.append({
+                    "id": alert_id,
+                    "event": event,
+                    "severity": severity,
+                    "headline": headline,
+                    "description": desc,
+                    "instruction": instruction,
+                    "onset": onset,
+                    "expires": expires,
+                })
+        return alerts
+    except Exception as e:
+        logger.warning(f"Error fetching NWS weather alerts: {e}")
+        return []
+
+
+def format_weather_alert_message(alert: dict) -> str:
+    """Format an urgent weather alert for Telegram."""
+    event = alert.get("event", "Severe Weather")
+    headline = alert.get("headline", "").replace("—", ", ")
+    instruction = alert.get("instruction", "") or ""
+    instruction = instruction.strip().replace("—", ", ")
+
+    msg = f"⚠️ SEVERE WEATHER ALERT: {event.upper()} (Mansfield / North Texas)\n\n"
+    if headline:
+        msg += f"{headline}\n\n"
+    if instruction:
+        inst_summary = instruction.split("\n\n")[0]
+        msg += f"👉 Action: {inst_summary}\n\n"
+    msg += "Stay alert and safe, Chip."
+    return msg
 
 
