@@ -57,31 +57,13 @@ def check_and_send_due_reminders():
 
 def check_and_send_event_prep_checkins():
     """Check for upcoming events/talks in the next 24 to 48 hours and send an anticipatory prep check-in.
-    Strictly respects quiet hours (10:00 PM - 7:00 AM), max 1 prep message per run, and 6-hour pacing.
+    Strictly respects quiet hours (10:00 PM - 7:00 AM) and dedupes once per subject.
     """
     try:
         # Strict quiet hours: after 10 PM and before 7 AM
         if assistant.is_in_quiet_hours():
             logger.debug("Quiet hours active (10:00 PM - 7:00 AM). Skipping proactive event prep check-ins.")
             return
-
-        default_chat_id = os.getenv("TELEGRAM_CHAT_ID", "5127043704")
-        user_phone = f"tg_{default_chat_id}"
-
-        # Pacing Check 1: Ensure at least 6 hours since the last proactive check-in of ANY kind
-        last_checkin = database.get_last_proactive_checkin(user_phone)
-        if last_checkin:
-            sent_at = datetime.fromisoformat(last_checkin["sent_at"].replace("Z", "+00:00"))
-            if (datetime.now(timezone.utc) - sent_at) < timedelta(hours=6.0):
-                logger.debug("Pacing active: proactive check-in sent less than 6 hours ago.")
-                return
-
-        # Pacing Check 2: Do not interrupt if Chip was chatting with the bot within the last 2 hours
-        last_msg_time = database.get_last_message_time(user_phone)
-        if last_msg_time:
-            if (datetime.now(timezone.utc) - last_msg_time) < timedelta(hours=2):
-                logger.debug("Recent user activity within last 2 hours; deferring event prep check-in.")
-                return
 
         # Look up pending one-shot reminders scheduled within the next 24 to 48 hours
         upcoming = database.get_upcoming_reminders_window(hours_ahead=48.0)
@@ -116,8 +98,6 @@ def check_and_send_event_prep_checkins():
                     reminder_phone, "event_prep", subject_key, text, msg
                 )
                 logger.info(f"Proactive event prep check-in sent for #{reminder_id} to Telegram {chat_id}.")
-                # STOP after 1 message so we NEVER blast multiple check-ins in a row!
-                break
 
     except Exception as e:
         logger.error(f"Error checking proactive event prep check-ins: {e}", exc_info=True)
@@ -125,7 +105,7 @@ def check_and_send_event_prep_checkins():
 
 def check_and_send_random_friend_checkin():
     """Periodically reach out like a true friend on diverse life topics (1 to 2 times per day).
-    Strictly honors quiet hours (10pm-7am), max 2 friend check-ins per day spaced 5+ hours apart, and subject deduping.
+    Strictly honors quiet hours (10pm-7am), max 2 friend check-ins per day, and subject deduping.
     """
     try:
         # Strict quiet hours: after 10 PM and before 7 AM
@@ -136,26 +116,11 @@ def check_and_send_random_friend_checkin():
         default_chat_id = os.getenv("TELEGRAM_CHAT_ID", "5127043704")
         user_phone = f"tg_{default_chat_id}"
 
-        # Pacing Check 1: Max 2 friend check-ins per 24 hours
+        # Max 2 friend check-ins per 24 hours
         recent_count = database.count_recent_proactive_checkins(user_phone, "random_friend", hours=24.0)
         if recent_count >= 2:
             logger.debug("Daily pacing reached: already sent 2 random friend check-ins in the last 24 hours.")
             return
-
-        # Pacing Check 2: Minimum 5 hours between friend check-ins
-        last_checkin = database.get_last_proactive_checkin(user_phone, checkin_type="random_friend")
-        if last_checkin:
-            sent_at = datetime.fromisoformat(last_checkin["sent_at"].replace("Z", "+00:00"))
-            if (datetime.now(timezone.utc) - sent_at) < timedelta(hours=5.0):
-                logger.debug("Pacing active: friend check-in was dispatched less than 5 hours ago.")
-                return
-
-        # Pacing Check 3: Do not interrupt if Chip was chatting with the bot within the last 2 hours
-        last_msg_time = database.get_last_message_time(user_phone)
-        if last_msg_time:
-            if (datetime.now(timezone.utc) - last_msg_time) < timedelta(hours=2):
-                logger.debug("Recent user activity within last 2 hours; deferring random friend check-in.")
-                return
 
         # Subject deduplication: Find topics that haven't been asked about yet
         candidates = [
