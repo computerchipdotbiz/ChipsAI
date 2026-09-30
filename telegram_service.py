@@ -13,18 +13,22 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "5127043704")
 
 
-def send_message(chat_id: str | int, text: str) -> bool:
-    """Send an outbound Telegram message."""
+def send_message(chat_id: str | int, text: str, reply_markup: dict | None = None) -> bool:
+    """Send an outbound Telegram message with optional inline keyboard buttons."""
     token = TELEGRAM_BOT_TOKEN
     if not token:
         logger.warning(f"[MOCK TG] Outbound to {chat_id}: '{text}' (TELEGRAM_BOT_TOKEN not configured)")
         return False
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = json.dumps({
+    body_data: dict = {
         "chat_id": str(chat_id),
         "text": text,
-    }).encode("utf-8")
+    }
+    if reply_markup:
+        body_data["reply_markup"] = reply_markup
+
+    payload = json.dumps(body_data).encode("utf-8")
 
     req = urllib.request.Request(
         url,
@@ -43,6 +47,70 @@ def send_message(chat_id: str | int, text: str) -> bool:
                 return False
     except Exception as e:
         logger.error(f"Failed to send Telegram message to {chat_id}: {e}")
+        return False
+
+
+def answer_callback_query(callback_query_id: str, text: str = "", show_alert: bool = False) -> bool:
+    """Acknowledge a Telegram button click (callback_query) with an optional toast or alert."""
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        return False
+
+    url = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
+    body = {
+        "callback_query_id": callback_query_id,
+        "show_alert": show_alert,
+    }
+    if text:
+        body["text"] = text
+
+    payload = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            return result.get("ok", False)
+    except Exception as e:
+        logger.error(f"Failed to answer callback query {callback_query_id}: {e}")
+        return False
+
+
+def edit_message_text(
+    chat_id: str | int,
+    message_id: int,
+    text: str,
+    reply_markup: dict | None = None,
+) -> bool:
+    """Edit the text and inline buttons of an existing Telegram message."""
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        return False
+
+    url = f"https://api.telegram.org/bot{token}/editMessageText"
+    body: dict = {
+        "chat_id": str(chat_id),
+        "message_id": message_id,
+        "text": text,
+    }
+    if reply_markup is not None:
+        body["reply_markup"] = reply_markup
+
+    payload = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            return result.get("ok", False)
+    except Exception as e:
+        logger.error(f"Failed to edit message {message_id} in {chat_id}: {e}")
         return False
 
 

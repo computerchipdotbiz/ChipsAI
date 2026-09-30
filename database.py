@@ -71,10 +71,26 @@ def _create_tables_sqlite(conn: sqlite3.Connection) -> None:
         """
     )
     cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_memories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_phone TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'general',
+            subject TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, scheduled_time)"
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_proactive_user_subject ON proactive_checkins(user_phone, subject_key)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memories_user_subject ON user_memories(user_phone, subject)"
     )
     conn.commit()
 
@@ -121,10 +137,26 @@ def _create_tables_postgres(conn) -> None:
         """
     )
     cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_memories (
+            id SERIAL PRIMARY KEY,
+            user_phone TEXT NOT NULL,
+            category TEXT NOT NULL DEFAULT 'general',
+            subject TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, scheduled_time)"
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_proactive_user_subject ON proactive_checkins(user_phone, subject_key)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_memories_user_subject ON user_memories(user_phone, subject)"
     )
     conn.commit()
 
@@ -582,5 +614,172 @@ def get_outlier_tasks_for_today(
                 "time_str": time_str,
             })
         return tasks
+
+
+def snooze_reminder(reminder_id: int, minutes: int = 30, db_path: str = DB_FILE) -> bool:
+    """Snooze a reminder by setting its scheduled_time into the future and status back to pending."""
+    from datetime import timedelta
+    new_time_iso = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+    with get_db(db_path) as conn:
+        cursor = execute_query(
+            conn,
+            "UPDATE reminders SET scheduled_time = ?, status = 'pending', sent_at = NULL WHERE id = ?",
+            (new_time_iso, reminder_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def complete_reminder(reminder_id: int, db_path: str = DB_FILE) -> bool:
+    """Mark a reminder as completed."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    with get_db(db_path) as conn:
+        cursor = execute_query(
+            conn,
+            "UPDATE reminders SET status = 'completed', sent_at = ? WHERE id = ?",
+            (now_iso, reminder_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def save_or_update_memory(
+    user_phone: str,
+    category: str,
+    subject: str,
+    detail: str,
+    db_path: str = DB_FILE,
+) -> int:
+    """Save a new memory or update an existing memory if the subject already exists."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    clean_cat = (category or "general").strip().lower()
+    clean_sub = subject.strip()
+    clean_detail = detail.strip()
+
+    with get_db(db_path) as conn:
+        # Check if subject already exists for this user
+        cursor = execute_query(
+            conn,
+            "SELECT id FROM user_memories WHERE user_phone = ? AND LOWER(subject) = LOWER(?)",
+            (user_phone, clean_sub),
+        )
+        existing = cursor.fetchone()
+        if existing:
+            mem_id = existing["id"]
+            execute_query(
+                conn,
+                "UPDATE user_memories SET category = ?, detail = ?, updated_at = ? WHERE id = ?",
+                (clean_cat, clean_detail, now_iso, mem_id),
+            )
+            conn.commit()
+            return mem_id
+        else:
+            if is_postgres():
+                cursor = execute_query(
+                    conn,
+                    """
+                    INSERT INTO user_memories (user_phone, category, subject, detail, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    RETURNING id
+                    """,
+                    (user_phone, clean_cat, clean_sub, clean_detail, now_iso, now_iso),
+                )
+                mem_id = cursor.fetchone()["id"]
+            else:
+                cursor = execute_query(
+                    conn,
+                    """
+                    INSERT INTO user_memories (user_phone, category, subject, detail, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (user_phone, clean_cat, clean_sub, clean_detail, now_iso, now_iso),
+                )
+                mem_id = cursor.lastrowid
+            conn.commit()
+            return mem_id
+
+
+def get_user_memories(
+    user_phone: str,
+    category: Optional[str] = None,
+    limit: int = 50,
+    db_path: str = DB_FILE,
+) -> List[Dict[str, Any]]:
+    """Retrieve memories for a user, optionally filtered by category."""
+    with get_db(db_path) as conn:
+        if category:
+            cursor = execute_query(
+                conn,
+                "SELECT id, category, subject, detail, created_at, updated_at FROM user_memories WHERE user_phone = ? AND LOWER(category) = LOWER(?) ORDER BY updated_at DESC LIMIT ?",
+                (user_phone, category.strip(), limit),
+            )
+        else:
+            cursor = execute_query(
+                conn,
+                "SELECT id, category, subject, detail, created_at, updated_at FROM user_memories WHERE user_phone = ? ORDER BY updated_at DESC LIMIT ?",
+                (user_phone, limit),
+            )
+        return [dict(r) for r in cursor.fetchall()]
+
+
+def search_user_memories(
+    user_phone: str,
+    query_text: str,
+    limit: int = 10,
+    db_path: str = DB_FILE,
+) -> List[Dict[str, Any]]:
+    """Search memories by subject or detail."""
+    pattern = f"%{query_text.strip().lower()}%"
+    with get_db(db_path) as conn:
+        cursor = execute_query(
+            conn,
+            """
+            SELECT id, category, subject, detail, created_at, updated_at
+            FROM user_memories
+            WHERE user_phone = ?
+              AND (LOWER(subject) LIKE ? OR LOWER(detail) LIKE ? OR LOWER(category) LIKE ?)
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (user_phone, pattern, pattern, pattern, limit),
+        )
+        return [dict(r) for r in cursor.fetchall()]
+
+
+def delete_user_memory(
+    memory_id: int,
+    user_phone: Optional[str] = None,
+    db_path: str = DB_FILE,
+) -> bool:
+    """Delete a memory by its ID."""
+    with get_db(db_path) as conn:
+        if user_phone:
+            cursor = execute_query(
+                conn,
+                "DELETE FROM user_memories WHERE id = ? AND user_phone = ?",
+                (memory_id, user_phone),
+            )
+        else:
+            cursor = execute_query(
+                conn,
+                "DELETE FROM user_memories WHERE id = ?",
+                (memory_id,),
+            )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def format_user_memories_summary(user_phone: str, limit: int = 20, db_path: str = DB_FILE) -> str:
+    """Format key user memories into a compact bullet list for system prompt context."""
+    memories = get_user_memories(user_phone, limit=limit, db_path=db_path)
+    if not memories:
+        return ""
+    lines = []
+    for m in memories:
+        cat = m.get("category", "general")
+        sub = m.get("subject", "")
+        det = m.get("detail", "")
+        lines.append(f"- [{cat}/{sub}]: {det}")
+    return "\n".join(lines)
 
 

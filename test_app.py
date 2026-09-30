@@ -290,3 +290,99 @@ def test_api_briefing_endpoint():
     assert data["briefing"].startswith("TAKE YOUR MEDS.")
 
 
+def test_user_memories_crud(test_db):
+    user = "tg_123456"
+    # 1. Save new memory
+    m1 = database.save_or_update_memory(user, "person", "Andy", "Wants to study IT certifications", db_path=test_db)
+    assert m1 > 0
+
+    # 2. Update existing memory for same subject
+    m2 = database.save_or_update_memory(user, "person", "Andy", "Decided on cybersecurity certifications", db_path=test_db)
+    assert m2 == m1
+
+    # 3. Save second memory
+    m3 = database.save_or_update_memory(user, "food", "Greek Spot", "Jen loves the gyro platter in Arlington", db_path=test_db)
+    assert m3 != m1
+
+    # 4. Retrieve memories
+    all_mems = database.get_user_memories(user, db_path=test_db)
+    assert len(all_mems) == 2
+    assert any(m["subject"] == "Andy" and "cybersecurity" in m["detail"] for m in all_mems)
+
+    # 5. Search memories
+    matches = database.search_user_memories(user, "gyro", db_path=test_db)
+    assert len(matches) == 1
+    assert matches[0]["subject"] == "Greek Spot"
+
+    # 6. Summary format
+    summary = database.format_user_memories_summary(user, db_path=test_db)
+    assert "[person/Andy]" in summary or "[food/Greek Spot]" in summary
+
+    # 7. Delete memory
+    ok = database.delete_user_memory(m3, user_phone=user, db_path=test_db)
+    assert ok is True
+    assert len(database.get_user_memories(user, db_path=test_db)) == 1
+
+
+def test_memory_tools_execution(test_db, monkeypatch):
+    import assistant
+    monkeypatch.setattr(database, "DB_FILE", test_db)
+    user = "tg_123456"
+
+    # Test save_memory tool
+    res = assistant.execute_tool("save_memory", {"category": "tech", "subject": "PLAUD", "detail": "NotePin voice recorder"}, user)
+    assert res.get("success") is True
+    mem_id = res.get("memory_id")
+    assert mem_id > 0
+
+    # Test recall_memories tool
+    res2 = assistant.execute_tool("recall_memories", {"query": "NotePin"}, user)
+    assert res2.get("success") is True
+    assert res2.get("count") >= 1
+
+    # Test delete_memory tool
+    res3 = assistant.execute_tool("delete_memory", {"memory_id": mem_id}, user)
+    assert res3.get("success") is True
+
+
+def test_snooze_and_complete_reminder(test_db):
+    user = "tg_123456"
+    in_5_min = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+    rid = database.add_reminder(user, "Take vitamins", in_5_min, db_path=test_db)
+
+    # Snooze by 30 minutes
+    ok = database.snooze_reminder(rid, minutes=30, db_path=test_db)
+    assert ok is True
+    reminders = database.list_active_reminders(db_path=test_db)
+    r = next(item for item in reminders if item["id"] == rid)
+    assert r["scheduled_time"] > in_5_min
+
+    # Complete reminder
+    ok2 = database.complete_reminder(rid, db_path=test_db)
+    assert ok2 is True
+    reminders_after = database.list_active_reminders(db_path=test_db)
+    assert all(item["id"] != rid for item in reminders_after)
+
+
+def test_api_memories_endpoint(test_db, monkeypatch):
+    monkeypatch.setattr(database, "DB_FILE", test_db)
+    client = TestClient(app)
+
+    # 1. Add memory via API
+    res = client.post("/api/memories/add", data={"subject": "Car", "detail": "2025 Hyundai Elantra Hybrid Blue", "category": "vehicle", "user_id": "tg_test"})
+    assert res.status_code == 200
+    mid = res.json()["memory_id"]
+
+    # 2. Get memories via API
+    res2 = client.get("/api/memories?user_id=tg_test")
+    assert res2.status_code == 200
+    assert res2.json()["count"] == 1
+    assert res2.json()["memories"][0]["subject"] == "Car"
+
+    # 3. Delete memory via API
+    res3 = client.post("/api/memories/delete", data={"memory_id": mid, "user_id": "tg_test"})
+    assert res3.status_code == 200
+    assert res3.json()["deleted"] is True
+
+
+

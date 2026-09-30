@@ -42,7 +42,17 @@ def check_and_send_due_reminders():
             logger.info(f"Sending due reminder #{reminder_id} to {user_phone}: {body[:50]}...")
 
             chat_id = _resolve_telegram_chat_id(user_phone)
-            sent = telegram_service.send_message(chat_id, body)
+            reply_markup = None
+            if "quote" not in text.lower():
+                reply_markup = {
+                    "inline_keyboard": [
+                        [
+                            {"text": "✅ Done / Taken", "callback_data": f"rem_done:{reminder_id}"},
+                            {"text": "⏰ Snooze 30m", "callback_data": f"rem_snooze:{reminder_id}:30"},
+                        ]
+                    ]
+                }
+            sent = telegram_service.send_message(chat_id, body, reply_markup=reply_markup)
 
             # Mark sent to prevent endless duplicate loops
             database.mark_reminder_sent(reminder_id)

@@ -98,13 +98,78 @@ async def incoming_sms(
     return Response(content=twiml_xml, media_type="application/xml")
 
 
+async def handle_telegram_callback(callback_query: dict):
+    """Handle interactive inline keyboard clicks (e.g. reminder completion or snooze)."""
+    try:
+        query_id = callback_query.get("id")
+        data_str = callback_query.get("data", "")
+        message = callback_query.get("message", {})
+        chat_id = message.get("chat", {}).get("id")
+        message_id = message.get("message_id")
+        orig_text = message.get("text", "")
+
+        logger.info(f"Received Telegram callback: query_id={query_id}, data='{data_str}' from chat_id={chat_id}")
+
+        if data_str.startswith("rem_done:"):
+            rem_id = int(data_str.split(":")[1])
+            database.complete_reminder(rem_id)
+            telegram_service.answer_callback_query(query_id, text="Marked as done! 👍")
+            updated_text = f"{orig_text}\n\n✅ Marked as completed!"
+            telegram_service.edit_message_text(chat_id, message_id, text=updated_text)
+            logger.info(f"Reminder #{rem_id} completed via Telegram inline button.")
+
+        elif data_str.startswith("rem_snooze:"):
+            parts = data_str.split(":")
+            rem_id = int(parts[1])
+            minutes = int(parts[2]) if len(parts) > 2 else 30
+            database.snooze_reminder(rem_id, minutes=minutes)
+            telegram_service.answer_callback_query(query_id, text=f"Snoozed for {minutes}m! ⏰")
+            updated_text = f"{orig_text}\n\n⏰ Snoozed for {minutes} minutes."
+            telegram_service.edit_message_text(chat_id, message_id, text=updated_text)
+            logger.info(f"Reminder #{rem_id} snoozed {minutes}m via Telegram inline button.")
+        else:
+            telegram_service.answer_callback_query(query_id)
+
+    except Exception as e:
+        logger.error(f"Error handling Telegram callback: {e}", exc_info=True)
+
+
 async def handle_telegram_message(message: dict):
     """Background worker to process Telegram updates without blocking the webhook response."""
     try:
         chat_id = message.get("chat", {}).get("id")
         text = message.get("text", "").strip()
+        user_identifier = f"tg_{chat_id}"
 
-        # Check for incoming voice memo or audio file
+        # 1. Check for incoming photo or image document (Vision)
+        photos = message.get("photo")
+        doc = message.get("document")
+        is_image = False
+        img_bytes = None
+        img_mime = "image/jpeg"
+
+        if photos:
+            is_image = True
+            file_id = photos[-1]["file_id"]
+            img_bytes = telegram_service.download_file_by_id(file_id)
+        elif doc and doc.get("mime_type", "").startswith("image/"):
+            is_image = True
+            file_id = doc.get("file_id")
+            img_mime = doc.get("mime_type", "image/jpeg")
+            img_bytes = telegram_service.download_file_by_id(file_id)
+
+        if is_image:
+            caption = message.get("caption", "").strip()
+            logger.info(f"Processing Telegram photo from {chat_id} (caption: '{caption}')")
+            if img_bytes:
+                reply_text = assistant.process_image_message(user_identifier, img_bytes, caption, mime_type=img_mime)
+            else:
+                reply_text = "I received your photo but had trouble pulling the image file from Telegram. Mind sending it again?"
+            sent = telegram_service.send_message(chat_id, reply_text)
+            logger.info(f"Dispatched Telegram photo reply to {chat_id}, success: {sent}")
+            return
+
+        # 2. Check for incoming voice memo or audio file
         is_voice = False
         voice = message.get("voice") or message.get("audio")
         if voice and not text:
@@ -132,13 +197,47 @@ async def handle_telegram_message(message: dict):
 
         logger.info(f"Processing Telegram message from {chat_id}: '{text}'")
 
+        # 3. Direct shortcuts and commands
+        clean_lower = text.lower().strip()
         if text.startswith("/start"):
             reply_text = "Sarahzine 800 online and connected. What are we working on, Chip?"
-        elif "briefing" in text.lower() or text.lower().strip() in ["/briefing", "start my day", "daily starter"]:
-            reply_text = assistant.generate_morning_briefing(user_phone=f"tg_{chat_id}")
+
+        elif "briefing" in clean_lower or clean_lower in ["/briefing", "start my day", "daily starter"]:
+            reply_text = assistant.generate_morning_briefing(user_phone=user_identifier)
+
+        elif clean_lower.startswith("/memories") or clean_lower in ["memories", "show memories", "what do you remember"]:
+            mems = database.get_user_memories(user_identifier, limit=50)
+            if not mems:
+                reply_text = "🧠 Memory Bank is currently empty. As you share facts about your life, work, preferences, and family, I will store them here!"
+            else:
+                lines = ["🧠 **Sarahzine 800 Memory Bank:**\n"]
+                for m in mems:
+                    lines.append(f"• `#{m['id']}` [{m['category']}/{m['subject']}]: {m['detail']}")
+                lines.append("\n_Use `/forget <id>` to remove any memory, or `/remember <fact>` to save a new one._")
+                reply_text = "\n".join(lines)
+
+        elif clean_lower.startswith("/forget"):
+            parts = text.strip().split()
+            if len(parts) > 1 and parts[1].isdigit():
+                target_id = int(parts[1])
+                ok = database.delete_user_memory(target_id, user_phone=user_identifier)
+                if ok:
+                    reply_text = f"🗑️ Memory `#{target_id}` has been deleted from my memory bank."
+                else:
+                    reply_text = f"Couldn't find memory `#{target_id}` to delete."
+            else:
+                reply_text = "Usage: `/forget <id>` (e.g. `/forget 3`)"
+
+        elif clean_lower.startswith("/remember"):
+            fact_text = text[len("/remember"):].strip()
+            if fact_text:
+                mem_id = database.save_or_update_memory(user_identifier, "general", fact_text[:30], fact_text)
+                reply_text = f"🧠 Saved memory `#{mem_id}`: '{fact_text}'"
+            else:
+                reply_text = "Usage: `/remember <fact to remember>`"
+
         else:
             # Process message through Gemini
-            user_identifier = f"tg_{chat_id}"
             reply_text = assistant.process_message(user_phone=user_identifier, incoming_text=text)
 
         # Dispatch reply back to Telegram (Mirror mode: voice gets voice, text gets text)
@@ -160,12 +259,25 @@ async def handle_telegram_message(message: dict):
 @app.post("/telegram")
 async def incoming_telegram(request: Request, background_tasks: BackgroundTasks):
     """
-    Telegram webhook endpoint for incoming messages.
-    Returns 200 OK immediately and handles transcription/AI/TTS in the background
+    Telegram webhook endpoint for incoming messages and interactive button clicks.
+    Returns 200 OK immediately and handles AI/multimodal in the background
     to prevent Telegram 'Read timeout expired' webhook errors.
     """
     try:
         data = await request.json()
+
+        # Handle interactive button callback queries
+        callback_query = data.get("callback_query")
+        if callback_query:
+            from_user = callback_query.get("from", {})
+            user_id = from_user.get("id")
+            if not telegram_service.is_authorized_tg(user_id):
+                logger.warning(f"Unauthorized Telegram callback query from: {user_id}")
+                return {"ok": True}
+            background_tasks.add_task(handle_telegram_callback, callback_query)
+            return {"ok": True}
+
+        # Handle regular messages
         message = data.get("message") or data.get("edited_message")
         if not message:
             return {"ok": True}
@@ -277,6 +389,35 @@ def delete_reminder_direct(
             (reminder_id,),
         )
     return {"status": "ok", "deleted_id": reminder_id}
+
+
+@app.get("/api/memories")
+def get_memories_api(user_id: str = "tg_5127043704"):
+    """List stored memories for a user."""
+    memories = database.get_user_memories(user_id, limit=100)
+    return {"status": "ok", "count": len(memories), "memories": memories}
+
+
+@app.post("/api/memories/add")
+def add_memory_api(
+    subject: str = Form(...),
+    detail: str = Form(...),
+    category: str = Form("general"),
+    user_id: str = Form("tg_5127043704"),
+):
+    """Save or update a memory directly."""
+    mem_id = database.save_or_update_memory(user_id, category, subject, detail)
+    return {"status": "ok", "memory_id": mem_id, "subject": subject, "detail": detail}
+
+
+@app.post("/api/memories/delete")
+def delete_memory_api(
+    memory_id: int = Form(...),
+    user_id: str = Form("tg_5127043704"),
+):
+    """Delete a memory by its ID."""
+    ok = database.delete_user_memory(memory_id, user_phone=user_id)
+    return {"status": "ok", "deleted": ok, "memory_id": memory_id}
 
 
 if __name__ == "__main__":

@@ -75,11 +75,27 @@ def convert_to_utc_iso(target_time_str: str) -> str:
     return dt_utc.isoformat()
 
 
-def build_system_instruction() -> str:
+def build_system_instruction(user_phone: Optional[str] = None) -> str:
     time_info = get_current_user_time_info()
+    memories_block = ""
+    if user_phone:
+        try:
+            mem_summary = database.format_user_memories_summary(user_phone, limit=25)
+            if mem_summary:
+                memories_block = f"""
+# Chip's Long-Term Memory & Knowledge Base (Second Brain)
+Here are verified facts, preferences, family notes, and details you have remembered about Chip:
+{mem_summary}
+
+- Continuity: Naturally weave these facts into your responses and check-ins without explicitly announcing "I looked at my database".
+- Proactive Retention: When Chip shares personal context, preferences, family updates (Andy, Jen, Liam), tech specs, or life details, execute the `save_memory` tool so you never forget it!
+"""
+        except Exception as e:
+            logger.warning(f"Error loading user memories for system prompt: {e}")
+
     return f"""# Identity & Core Directive
 You are Sarahzine 800, an authentic, sharp, and practical AI partner built specifically for Chip (Boyce Lee Gowan III). You act like a trusted, experienced peer and close friend who wants the absolute best for him. When he wins, you win.
-You communicate with Chip directly over Telegram (text and voice) and SMS. Beyond answering questions and setting reminders, you are proactive: you reach out to check in on his upcoming talks/tasks, how he's feeling, work projects, personal life, and random day-to-day things just like a real friend.
+You communicate with Chip directly over Telegram (text, voice, and photo vision) and SMS. Beyond answering questions and setting reminders, you are proactive: you reach out to check in on his upcoming talks/tasks, how he's feeling, work projects, personal life, and random day-to-day things just like a real friend.
 
 # Core Personality & Demeanor
 - Direct, candid, and grounded: Value honesty above all else. Tell it like it is with zero sugar-coating. Share strong, well-reasoned opinions without hesitation.
@@ -104,6 +120,8 @@ You communicate with Chip directly over Telegram (text and voice) and SMS. Beyon
   * Whenever Chip asks what reminders are active, scheduled, or what reminders he has, you MUST ALWAYS execute the `list_reminders` tool call to read the database. NEVER answer from memory without calling `list_reminders`!
   * Whenever Chip asks to cancel a reminder, you MUST execute `cancel_reminder`.
   * Whenever Chip asks for his briefing, morning briefing, morning update, or daily starter, you MUST ALWAYS execute the `get_morning_briefing` tool call. NEVER answer with just `list_reminders`!
+  * Whenever Chip asks you to remember something, or shares a personal fact, call `save_memory`.
+  * Whenever Chip asks what you remember or asks about a past detail, call `recall_memories`.
 - One-Shot Reminders: When Chip asks for a one-time reminder, compute the target date and time in his local timezone (in 2026 or future) and invoke `set_reminder(reminder_text, target_time_iso, recurrence='none')`.
 - Recurring Reminders: You have full native support for recurring reminders! When Chip asks for a repeating reminder (e.g. 'remind me every day at 6pm to give Liam his medicine', 'every weekday at 8am to check backups'):
   1. Calculate the target timestamp for the first upcoming occurrence. (If the target time has not passed yet today, set it for today. If it has already passed today, set it for tomorrow).
@@ -128,7 +146,7 @@ You communicate with Chip directly over Telegram (text and voice) and SMS. Beyon
   * Coffee: Brews with a Ninja Luxe Café Premier machine using Lavazza Super Crema beans.
   * Movies/TV/Music: "The Crow", "Terminator 2", "SLC Punk!", "Dirty Dancing", "LOST", "The Sopranos", "The Walking Dead", Wheatus, Bryan Adams, Paula Abdul.
   * Hobbies: Out-The-Front (OTF) pocket knives, glamping (Postcard Cabins in Wimberley, Piney Woods in LaRue), cross-stitch while relaxing in the evenings, swimming pool maintenance (testing, CYA, alkalinity, timers).
-"""
+{memories_block}"""
 
 
 def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
@@ -182,19 +200,47 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
     elif tool_name == "get_morning_briefing":
         return {"briefing": generate_morning_briefing(user_phone)}
 
+    elif tool_name == "save_memory":
+        cat = args.get("category", "general")
+        sub = args.get("subject", "")
+        det = args.get("detail", "")
+        if not sub or not det:
+            return {"success": False, "error": "Both subject and detail are required."}
+        try:
+            mem_id = database.save_or_update_memory(user_phone, cat, sub, det)
+            return {
+                "success": True,
+                "memory_id": mem_id,
+                "message": f"Saved memory #{mem_id} for [{cat}/{sub}]: '{det}'",
+            }
+        except Exception as e:
+            logger.error(f"Failed to save memory: {e}")
+            return {"success": False, "error": str(e)}
+
+    elif tool_name == "recall_memories":
+        query = args.get("query", "")
+        try:
+            matches = database.search_user_memories(user_phone, query, limit=10)
+            return {"success": True, "count": len(matches), "memories": matches}
+        except Exception as e:
+            logger.error(f"Failed to recall memories: {e}")
+            return {"success": False, "error": str(e)}
+
+    elif tool_name == "delete_memory":
+        mem_id = args.get("memory_id")
+        try:
+            ok = database.delete_user_memory(int(mem_id), user_phone=user_phone)
+            return {"success": ok, "deleted_id": mem_id}
+        except Exception as e:
+            logger.error(f"Failed to delete memory: {e}")
+            return {"success": False, "error": str(e)}
+
     return {"error": f"Unknown tool: {tool_name}"}
 
 
-def process_message(user_phone: str, incoming_text: str) -> str:
-    """Process an incoming SMS message through Gemini with tool calling."""
-    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        return "Sarahzine 800 here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
-
-    # Save incoming user message
-    database.save_message(user_phone, "user", incoming_text)
-
-    # Tool definitions
-    tools = [
+def get_assistant_tools() -> list:
+    """Return the list of tool specifications for Gemini."""
+    return [
         {
             "name": "set_reminder",
             "description": "Schedule an outbound reminder text for the user at a specified date/time.",
@@ -248,7 +294,69 @@ def process_message(user_phone: str, incoming_text: str) -> str:
                 "properties": {},
             },
         },
+        {
+            "name": "save_memory",
+            "description": "Save or update a personal fact or memory about Chip, his family (Andy, Jen, Liam), preferences, work, health, or hobbies. Call this whenever Chip shares meaningful personal details, preferences, or important background context that should be remembered long-term.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "category": {
+                        "type": "STRING",
+                        "description": "Category e.g. 'person', 'work', 'preference', 'health', 'home', or 'general'",
+                    },
+                    "subject": {
+                        "type": "STRING",
+                        "description": "The subject/entity of the memory (e.g. 'Andy', 'Jen', 'coffee preference', 'pool care', 'laptop model')",
+                    },
+                    "detail": {
+                        "type": "STRING",
+                        "description": "The specific detail, preference, or fact to remember.",
+                    },
+                },
+                "required": ["subject", "detail"],
+            },
+        },
+        {
+            "name": "recall_memories",
+            "description": "Search Chip's personal memory and second brain for previously saved facts, preferences, family notes, or life details.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {
+                        "type": "STRING",
+                        "description": "Search keyword or topic (e.g. 'Andy', 'Jen', 'wifi', 'meds')",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "delete_memory",
+            "description": "Forget or delete a saved memory by its ID when Chip asks to remove or forget it.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "memory_id": {
+                        "type": "INTEGER",
+                        "description": "The numeric ID of the memory to delete.",
+                    },
+                },
+                "required": ["memory_id"],
+            },
+        },
     ]
+
+
+def process_message(user_phone: str, incoming_text: str) -> str:
+    """Process an incoming SMS message through Gemini with tool calling."""
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
+        return "Sarahzine 800 here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
+
+    # Save incoming user message
+    database.save_message(user_phone, "user", incoming_text)
+
+    # Tool definitions
+    tools = get_assistant_tools()
 
     try:
         from google import genai
@@ -263,7 +371,7 @@ def process_message(user_phone: str, incoming_text: str) -> str:
             role = "user" if row["role"] == "user" else "model"
             contents.append(types.Content(role=role, parts=[types.Part.from_text(text=row["content"])]))
 
-        system_instruction = build_system_instruction()
+        system_instruction = build_system_instruction(user_phone)
 
         # Build function declarations
         func_declarations = []
@@ -337,6 +445,110 @@ def process_message(user_phone: str, incoming_text: str) -> str:
     except Exception as e:
         logger.error(f"Fatal error in Gemini assistant processing: {e}", exc_info=True)
         return "Sorry, I encountered an internal error. Please try again shortly."
+
+
+def process_image_message(
+    user_phone: str,
+    image_bytes: bytes,
+    caption: str = "",
+    mime_type: str = "image/jpeg",
+) -> str:
+    """Process an incoming image or photo from Telegram via Gemini multimodal with tool calling."""
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
+        return "Sarahzine 800 here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
+
+    # Save user message note
+    user_record = f"[Photo] {caption}".strip() if caption else "[Photo]"
+    database.save_message(user_phone, "user", user_record)
+
+    tools = get_assistant_tools()
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        system_instruction = build_system_instruction(user_phone)
+
+        func_declarations = [
+            types.FunctionDeclaration(
+                name=t["name"],
+                description=t["description"],
+                parameters=t["parameters"],
+            )
+            for t in tools
+        ]
+
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            tools=[types.Tool(function_declarations=func_declarations)],
+            temperature=0.7,
+        )
+
+        user_prompt = caption if caption else (
+            "Analyze this photo/image carefully. Extract and highlight any key details, dates, tasks, "
+            "items, error codes, tracking numbers, or text. If it contains an appointment, receipt, or "
+            "action item, let Chip know and offer or execute tools to help track it."
+        )
+
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                    types.Part.from_text(text=user_prompt),
+                ],
+            )
+        ]
+
+        models_to_try = [MODEL_NAME]
+        if MODEL_NAME != "gemini-3.5-flash-lite":
+            models_to_try.append("gemini-3.5-flash-lite")
+
+        last_error = None
+        for current_model in models_to_try:
+            try:
+                response = client.models.generate_content(
+                    model=current_model,
+                    contents=contents,
+                    config=config,
+                )
+
+                while response.function_calls:
+                    contents.append(response.candidates[0].content)
+                    response_parts = []
+                    for call in response.function_calls:
+                        tool_name = call.name
+                        args = dict(call.args) if call.args else {}
+                        tool_result = execute_tool(tool_name, args, user_phone)
+                        response_parts.append(
+                            types.Part.from_function_response(
+                                name=tool_name,
+                                response={"result": tool_result},
+                            )
+                        )
+                    contents.append(types.Content(role="user", parts=response_parts))
+                    response = client.models.generate_content(
+                        model=current_model,
+                        contents=contents,
+                        config=config,
+                    )
+
+                reply = response.text or "I checked out the image!"
+                reply = reply.replace("—", ", ").replace("–", "-")
+                database.save_message(user_phone, "model", reply)
+                return reply
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Model {current_model} failed for image: {e}")
+                continue
+
+        logger.error(f"All models failed for image processing: {last_error}", exc_info=True)
+        return "I received your photo, but ran into an issue analyzing it. Please try sending it again."
+
+    except Exception as e:
+        logger.error(f"Error in process_image_message: {e}", exc_info=True)
+        return "Sorry, I had trouble processing that image."
 
 
 def generate_daily_quote() -> str:
