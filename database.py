@@ -500,7 +500,9 @@ def get_upcoming_reminders_window(
             """
             SELECT id, user_phone, reminder_text, scheduled_time, created_at, recurrence
             FROM reminders
-            WHERE status = 'pending' AND scheduled_time > ? AND scheduled_time <= ?
+            WHERE status = 'pending'
+              AND (recurrence = 'none' OR recurrence = '' OR recurrence IS NULL)
+              AND scheduled_time > ? AND scheduled_time <= ?
             ORDER BY scheduled_time ASC
             """,
             (now_iso, future_iso),

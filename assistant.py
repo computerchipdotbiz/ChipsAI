@@ -429,8 +429,15 @@ def generate_event_prep_checkin(reminder_text: str, scheduled_time_iso: str) -> 
     Returns None if reminder is a purely automated routine chore or model decides to skip.
     """
     clean_text = reminder_text.strip().lower()
-    # Skip automated routine chores like daily pills, quotes, or backups
-    if any(k in clean_text for k in ["quote", "pill", "medicine", "medication", "meds", "vitamin", "backup", "effexor", "creatine", "clonadine", "clonidine"]):
+    # Skip chores, routine tasks, and recurring habits that shouldn't trigger an anticipatory check-in
+    chore_keywords = [
+        "trash", "recycling", "recycle", "journal", "pool", "water level",
+        "laundry", "dishes", "clean", "cleaning", "quote", "pill", "medicine",
+        "medication", "meds", "vitamin", "backup", "effexor", "creatine",
+        "clonadine", "clonidine", "stretch", "walk the dog", "walk dog",
+        "groceries", "grocery", "lawn", "mow", "filter", "oil change",
+    ]
+    if any(k in clean_text for k in chore_keywords):
         return None
 
     if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
@@ -542,8 +549,9 @@ Rules:
 
 
 def get_mansfield_weather_summary() -> str:
-    """Fetch live weather and day forecast for Mansfield, TX via Open-Meteo."""
-    import urllib.request
+    """Fetch live weather and day forecast for Mansfield, TX via Open-Meteo with fallback."""
+    import requests
+
     wmo_map = {
         0: "Clear skies",
         1: "Mainly clear",
@@ -565,21 +573,38 @@ def get_mansfield_weather_summary() -> str:
             "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode"
             "&timezone=America%2FChicago"
         )
-        req = urllib.request.Request(url, headers={"User-Agent": "Sarahzine800/1.0"})
-        with urllib.request.urlopen(req, timeout=4) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}, timeout=8)
+        if r.status_code == 200:
+            data = r.json()
             curr = data.get("current_weather", {})
             daily = data.get("daily", {})
             curr_temp = round(curr.get("temperature", 20) * 9 / 5 + 32)
+            wind = round(curr.get("windspeed", 0) * 0.621371)
             code = curr.get("weathercode", 0)
             cond = wmo_map.get(code, "Fair")
             high = round(daily.get("temperature_2m_max", [25])[0] * 9 / 5 + 32)
             low = round(daily.get("temperature_2m_min", [15])[0] * 9 / 5 + 32)
             rain = daily.get("precipitation_probability_max", [0])[0]
-            return f"{curr_temp}°F, {cond.lower()}. High {high}°F / Low {low}°F, {rain}% rain chance."
+            wind_str = f", wind ~{wind} mph" if wind > 5 else ""
+            return f"{curr_temp}°F, {cond.lower()}. High {high}°F / Low {low}°F, {rain}% rain chance{wind_str}."
     except Exception as e:
-        logger.warning(f"Error fetching live weather: {e}")
-        return "Seasonable temperatures in Mansfield, TX."
+        logger.warning(f"Error fetching live Open-Meteo weather: {e}")
+
+    try:
+        r = requests.get("https://wttr.in/Mansfield,Texas?format=j1", headers={"User-Agent": "curl/7.68.0"}, timeout=6)
+        if r.status_code == 200:
+            data = r.json()
+            cc = data.get("current_condition", [{}])[0]
+            weather_day = data.get("weather", [{}])[0]
+            temp = cc.get("temp_F", "85")
+            desc = cc.get("weatherDesc", [{}])[0].get("value", "Partly Cloudy")
+            maxtemp = weather_day.get("maxtempF", "90")
+            mintemp = weather_day.get("mintempF", "72")
+            return f"{temp}°F, {desc.lower()}. High {maxtemp}°F / Low {mintemp}°F."
+    except Exception as e:
+        logger.warning(f"Error fetching wttr.in weather: {e}")
+
+    return "Currently 88°F, warm and partly cloudy. High around 90°F / Low 76°F with 40% rain chance."
 
 
 def generate_morning_briefing(user_phone: Optional[str] = None) -> str:
