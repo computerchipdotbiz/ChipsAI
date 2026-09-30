@@ -9,8 +9,8 @@ load_dotenv()
 
 logger = logging.getLogger("chipai.telegram")
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or "8976159344:AAEP3jBtyCnO-_Mj7xzyOatNdEFK8-DeDMI"
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or "5127043704"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "5127043704")
 
 
 def send_message(chat_id: str | int, text: str) -> bool:
