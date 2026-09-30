@@ -1,7 +1,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Form, HTTPException, Response, Request, status
+from fastapi import FastAPI, Form, HTTPException, Response, Request, status, BackgroundTasks
 from dotenv import load_dotenv
 
 import database
@@ -98,27 +98,11 @@ async def incoming_sms(
     return Response(content=twiml_xml, media_type="application/xml")
 
 
-@app.post("/telegram")
-async def incoming_telegram(request: Request):
-    """
-    Telegram webhook endpoint for incoming messages.
-    Validates sender against whitelist, passes text to Gemini, and replies via Telegram Bot API.
-    """
+async def handle_telegram_message(message: dict):
+    """Background worker to process Telegram updates without blocking the webhook response."""
     try:
-        data = await request.json()
-        message = data.get("message") or data.get("edited_message")
-        if not message:
-            return {"ok": True}
-
         chat_id = message.get("chat", {}).get("id")
         text = message.get("text", "").strip()
-
-        if not chat_id:
-            return {"ok": True}
-
-        if not telegram_service.is_authorized_tg(chat_id):
-            logger.warning(f"Unauthorized Telegram chat_id: {chat_id}")
-            return {"ok": True}
 
         # Check for incoming voice memo or audio file
         is_voice = False
@@ -136,17 +120,17 @@ async def incoming_telegram(request: Request):
                     telegram_service.send_message(
                         chat_id, "I couldn't quite catch that voice note, Chip. Could you say it again or send it as text?"
                     )
-                    return {"ok": True}
+                    return
             else:
                 telegram_service.send_message(
                     chat_id, "I had trouble pulling that audio file from Telegram. Mind sending it as text?"
                 )
-                return {"ok": True}
+                return
 
         if not text:
-            return {"ok": True}
+            return
 
-        logger.info(f"Incoming Telegram from {chat_id}: '{text}'")
+        logger.info(f"Processing Telegram message from {chat_id}: '{text}'")
 
         if text.startswith("/start"):
             reply_text = "ChipAI online and connected. What are we working on, Chip?"
@@ -161,16 +145,43 @@ async def incoming_telegram(request: Request):
             if voice_bytes:
                 sent = telegram_service.send_voice(chat_id, voice_bytes, caption=reply_text)
                 logger.info(f"Dispatched Telegram voice reply to {chat_id}, success: {sent}")
-                return {"ok": True}
-            else:
-                logger.warning(f"TTS generation returned empty; falling back to text for {chat_id}")
+                if sent:
+                    return
+            logger.warning(f"Voice dispatch failed or empty; falling back to text for {chat_id}")
 
         sent = telegram_service.send_message(chat_id, reply_text)
         logger.info(f"Dispatched Telegram text reply to {chat_id}, success: {sent}")
+    except Exception as e:
+        logger.error(f"Error in background Telegram handler: {e}", exc_info=True)
+
+
+@app.post("/telegram")
+async def incoming_telegram(request: Request, background_tasks: BackgroundTasks):
+    """
+    Telegram webhook endpoint for incoming messages.
+    Returns 200 OK immediately and handles transcription/AI/TTS in the background
+    to prevent Telegram 'Read timeout expired' webhook errors.
+    """
+    try:
+        data = await request.json()
+        message = data.get("message") or data.get("edited_message")
+        if not message:
+            return {"ok": True}
+
+        chat_id = message.get("chat", {}).get("id")
+        if not chat_id:
+            return {"ok": True}
+
+        if not telegram_service.is_authorized_tg(chat_id):
+            logger.warning(f"Unauthorized Telegram chat_id: {chat_id}")
+            return {"ok": True}
+
+        # Hand off to background worker for instant response to Telegram
+        background_tasks.add_task(handle_telegram_message, message)
         return {"ok": True}
     except Exception as e:
-        logger.error(f"Error handling Telegram webhook: {e}", exc_info=True)
-        return {"ok": False, "error": str(e)}
+        logger.error(f"Error receiving Telegram webhook: {e}", exc_info=True)
+        return {"ok": True}
 
 
 @app.post("/api/reminders/check")

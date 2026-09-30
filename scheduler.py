@@ -28,19 +28,25 @@ def check_and_send_due_reminders():
                 body = f"⏰ ChipAI Reminder: {text}"
             logger.info(f"Sending due reminder #{reminder_id} to {user_phone}: {body[:50]}...")
 
-            if user_phone.startswith("tg_"):
-                chat_id = user_phone.replace("tg_", "")
-                import telegram_service
-                sent = telegram_service.send_message(chat_id, body)
-            else:
-                sent = twilio_service.send_sms(user_phone, body)
+            # Telegram is the sole communication channel
+            import os
+            import telegram_service
 
-            # Mark sent even in mock mode to avoid endless duplicate loops
+            if "tg_" in str(user_phone):
+                chat_id = user_phone.replace("tg_", "")
+            elif user_phone.isdigit():
+                chat_id = user_phone
+            else:
+                chat_id = os.getenv("TELEGRAM_CHAT_ID", "5127043704")
+
+            sent = telegram_service.send_message(chat_id, body)
+
+            # Mark sent to prevent endless duplicate loops
             database.mark_reminder_sent(reminder_id)
             if sent:
-                logger.info(f"Reminder #{reminder_id} sent successfully.")
+                logger.info(f"Reminder #{reminder_id} sent successfully to Telegram {chat_id}.")
             else:
-                logger.warning(f"Reminder #{reminder_id} processed.")
+                logger.warning(f"Reminder #{reminder_id} dispatched with warning.")
 
     except Exception as e:
         logger.error(f"Error checking due reminders: {e}", exc_info=True)
