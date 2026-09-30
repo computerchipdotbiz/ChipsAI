@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     scheduler.start_scheduler(interval_seconds=15)
 
     # Auto-register Telegram webhook if bot token is configured
-    tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN") or "8976159344:AAEP3jBtyCnO-_Mj7xzyOatNdEFK8-DeDMI"
     base_url = os.getenv("RENDER_EXTERNAL_URL", "https://chipsai.onrender.com")
     if tg_token:
         try:

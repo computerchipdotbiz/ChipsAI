@@ -102,6 +102,7 @@ def test_telegram_voice_webhook(monkeypatch):
     monkeypatch.setattr("assistant.process_message", lambda user_phone, incoming_text: f"Echo: {incoming_text}")
     monkeypatch.setattr("tts_service.text_to_speech", lambda text: b"fake_voice_bytes")
     sent_voices = []
+    monkeypatch.setattr("telegram_service.is_authorized_tg", lambda chat_id: True)
     monkeypatch.setattr("telegram_service.send_voice", lambda chat_id, voice_bytes, caption="": sent_voices.append((chat_id, voice_bytes, caption)) or True)
 
     payload = {
