@@ -1,16 +1,18 @@
-# 🤖 ChipAI — Always-On 24/7 Personal SMS Assistant
+# 🤖 Sarahzine 800 — Always-On 24/7 Personal AI Assistant & Proactive Companion
 
-ChipAI is a personal SMS assistant powered by **Google Gemini** and **Twilio**. It lives in the cloud, listens for incoming text messages from your cell phone, responds concisely, and schedules proactive reminders that text you when due.
+Sarahzine 800 is an authentic, sharp, and proactive personal AI companion built for Chip. Powered by **Google Gemini**, Telegram (text & voice), and Twilio SMS. It lives in the cloud, listens and speaks over voice memos and text, schedules intelligent reminders, and proactively reaches out like a real friend (anticipatory prep check-ins ~10h before talks/events, random friend check-ins, and zero corporate fluff).
 
 ---
 
 ## 🌟 Key Features
 
-- **Direct SMS Chat**: Text questions, brainstorming, or casual queries directly from your phone's Messages app.
-- **Natural Language Reminders**: Say *"remind me at 4:30pm to check the oven"* or *"remind me in 45 minutes to submit the report"*. Chip understands the time in your timezone and schedules it.
-- **Proactive Outbound Texts**: When a reminder is due, Chip automatically sends an SMS notification to your phone.
-- **Whitelist Security Filter**: Drops any incoming messages from numbers that do not match `USER_PHONE_NUMBER` to prevent unauthorized access or token usage.
-- **Persistent SQLite Storage**: Reminders and conversation history are stored persistently.
+- **Direct Telegram & SMS Chat**: Text questions, brainstorm, or send voice memos with automated speech-to-text and Jenny neural voice replies.
+- **Anticipatory Prep Check-ins**: When an important talk or event is coming up (e.g. talking with Andy about work study plans), Sarahzine 800 proactively reaches out ~10 hours before to see how you're feeling and help talk through points.
+- **Random Friend Check-ins**: Reaches out periodically on random life topics (recent IT projects at Fox, personal tasks you're wrestling with, relationship dynamics, meals you're craving this week, hobbies/downtime) like a real friend.
+- **Strict Quiet Hours & Deduping**: Absolute quiet hours between 10:00 PM and 7:00 AM local time. Deduplicated so every subject is only checked once.
+- **Natural Language Reminders**: Natural scheduling with one-shot and recurring support (`daily`, `weekdays`, `weekly`).
+- **Whitelist Security Filter**: Drops unauthorized senders to protect privacy and token usage.
+- **Persistent Storage**: Full SQLite and PostgreSQL support.
 - **100% Cloud Ready**: Includes Dockerfile, Procfile, and Render blueprint for easy 24/7 cloud hosting.
 
 ---

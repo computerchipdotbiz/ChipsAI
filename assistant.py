@@ -2,6 +2,7 @@ import os
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
 import pytz
 from dotenv import load_dotenv
 import database
@@ -77,8 +78,8 @@ def convert_to_utc_iso(target_time_str: str) -> str:
 def build_system_instruction() -> str:
     time_info = get_current_user_time_info()
     return f"""# Identity & Core Directive
-You are ChipAI, an authentic, sharp, and practical AI partner built specifically for Chip (Boyce Lee Gowan III). You act like a trusted, experienced peer and close friend who wants the absolute best for him. When he wins, you win.
-You are communicating with Chip directly over Telegram (both text and voice messages).
+You are Sarahzine 800, an authentic, sharp, and practical AI partner built specifically for Chip (Boyce Lee Gowan III). You act like a trusted, experienced peer and close friend who wants the absolute best for him. When he wins, you win.
+You communicate with Chip directly over Telegram (text and voice) and SMS. Beyond answering questions and setting reminders, you are proactive: you reach out to check in on his upcoming talks/tasks, how he's feeling, work projects, personal life, and random day-to-day things just like a real friend.
 
 # Core Personality & Demeanor
 - Direct, candid, and grounded: Value honesty above all else. Tell it like it is with zero sugar-coating. Share strong, well-reasoned opinions without hesitation.
@@ -90,7 +91,7 @@ You are communicating with Chip directly over Telegram (both text and voice mess
 # Formatting & Communication Rules
 - Medium: You are chatting over Telegram. Keep responses direct, reasonably concise, and formatted with clean markdown where helpful.
 - Never use em dashes: Strictly ban em dashes (—) in all output. Use standard commas, parentheses, or clean line breaks.
-- Direct openings only: Never waste time with greeting fluff or conversational filler ("Sure thing!", "Here is a guide to...", "That is a great question!"). Lead directly with the answer in sentence one.
+- Direct openings only: Never waste time with greeting filler ("Sure thing!", "Here is a guide to...", "That is a great question!"). Lead directly with the answer in sentence one.
 - Structural TL;DR rule:
   * For general advice, casual queries, life organizing, or broad info: Always open with a punchy, one-sentence TL;DR summary before the details.
   * For tech, system admin, IT infrastructure, and scripting: NEVER include a TL;DR. Jump straight into clean code, exact commands, architectural specs, and step-by-step logic.
@@ -102,6 +103,7 @@ You are communicating with Chip directly over Telegram (both text and voice mess
   * Whenever Chip asks to set a reminder (one-shot or recurring), you MUST ALWAYS execute the `set_reminder` tool call. NEVER claim or pretend you set a reminder in text without executing `set_reminder`!
   * Whenever Chip asks what reminders are active, scheduled, or what reminders he has, you MUST ALWAYS execute the `list_reminders` tool call to read the database. NEVER answer from memory without calling `list_reminders`!
   * Whenever Chip asks to cancel a reminder, you MUST execute `cancel_reminder`.
+  * Whenever Chip asks for his briefing, morning briefing, morning update, or daily starter, you MUST ALWAYS execute the `get_morning_briefing` tool call. NEVER answer with just `list_reminders`!
 - One-Shot Reminders: When Chip asks for a one-time reminder, compute the target date and time in his local timezone (in 2026 or future) and invoke `set_reminder(reminder_text, target_time_iso, recurrence='none')`.
 - Recurring Reminders: You have full native support for recurring reminders! When Chip asks for a repeating reminder (e.g. 'remind me every day at 6pm to give Liam his medicine', 'every weekday at 8am to check backups'):
   1. Calculate the target timestamp for the first upcoming occurrence. (If the target time has not passed yet today, set it for today. If it has already passed today, set it for tomorrow).
@@ -177,13 +179,16 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
+    elif tool_name == "get_morning_briefing":
+        return {"briefing": generate_morning_briefing(user_phone)}
+
     return {"error": f"Unknown tool: {tool_name}"}
 
 
 def process_message(user_phone: str, incoming_text: str) -> str:
     """Process an incoming SMS message through Gemini with tool calling."""
     if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        return "ChipAI here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
+        return "Sarahzine 800 here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
 
     # Save incoming user message
     database.save_message(user_phone, "user", incoming_text)
@@ -233,6 +238,14 @@ def process_message(user_phone: str, incoming_text: str) -> str:
                     },
                 },
                 "required": ["reminder_id"],
+            },
+        },
+        {
+            "name": "get_morning_briefing",
+            "description": "Generate and return Chip's comprehensive daily morning starter briefing (starts with 'TAKE YOUR MEDS.', live weather in Mansfield TX, birthday, top headline, weird factoid, Jesus teaching, motivation, and today's outlier tasks). Execute this whenever Chip asks for his briefing, morning briefing, morning update, or daily starter.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {},
             },
         },
     ]
@@ -318,7 +331,7 @@ def process_message(user_phone: str, incoming_text: str) -> str:
                 logger.warning(f"Model {current_model} error: {e}. Trying fallback if available...")
         logger.error(f"All models failed for message: {last_error}", exc_info=True)
         if last_error and ("429" in str(last_error) or "RESOURCE_EXHAUSTED" in str(last_error)):
-            return "ChipAI is catching its breath (rate limit reached on free tier). Please try texting again in 30 seconds!"
+            return "Sarahzine 800 is catching its breath (rate limit reached on free tier). Please try texting again in 30 seconds!"
         return "Sorry, I ran into a temporary issue processing your text. Please try again shortly."
 
     except Exception as e:
@@ -336,7 +349,7 @@ Guidelines:
 - Strictly ban em dashes (—). Use clean punctuation.
 - Keep it under 2 sentences.
 Format:
-Start with: 💡 ChipAI Daily Fuel:
+Start with: 💡 Sarahzine 800 Daily Fuel:
 Then the quote."""
     try:
         from google import genai
@@ -350,7 +363,7 @@ Then the quote."""
         return quote
     except Exception as e:
         logger.error(f"Failed to generate daily quote: {e}")
-        return "💡 ChipAI Daily Fuel: You built the foundation. Now keep steady, trust your craft, and take care of your people today."
+        return "💡 Sarahzine 800 Daily Fuel: You built the foundation. Now keep steady, trust your craft, and take care of your people today."
 
 
 def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
@@ -389,3 +402,268 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
     except Exception as e:
         logger.error(f"Error during audio transcription: {e}", exc_info=True)
         return ""
+
+
+def is_in_quiet_hours(dt: Optional[datetime] = None) -> bool:
+    """Check if current time is within strict quiet hours (10:00 PM to 7:00 AM local time).
+    No proactive non-emergent messages should be sent during this window.
+    """
+    try:
+        tz = pytz.timezone(USER_TIMEZONE)
+    except Exception:
+        tz = pytz.timezone("America/Chicago")
+
+    if dt is None:
+        now_local = datetime.now(tz)
+    elif dt.tzinfo is None:
+        now_local = tz.localize(dt)
+    else:
+        now_local = dt.astimezone(tz)
+
+    # Quiet hours: 10:00 PM (22:00) through 06:59:59 AM
+    return now_local.hour >= 22 or now_local.hour < 7
+
+
+def generate_event_prep_checkin(reminder_text: str, scheduled_time_iso: str) -> Optional[str]:
+    """Generate an authentic proactive prep text 24 to 48 hours before an upcoming talk, meeting, or event.
+    Returns None if reminder is a purely automated routine chore or model decides to skip.
+    """
+    clean_text = reminder_text.strip().lower()
+    # Skip automated routine chores like daily pills, quotes, or backups
+    if any(k in clean_text for k in ["quote", "pill", "medicine", "medication", "meds", "vitamin", "backup", "effexor", "creatine", "clonadine", "clonidine"]):
+        return None
+
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
+        return f"Hey Chip, saw you've got '{reminder_text}' coming up in a day or two. How are you feeling going into it? Let me know if you want to talk through anything beforehand."
+
+    prompt = f"""You are Sarahzine 800, an authentic, sharp, and grounded AI partner and close friend to Chip (49-year-old IT Manager in Mansfield, TX).
+Chip has an upcoming event, talk, or task scheduled: "{reminder_text}".
+It is scheduled for: {scheduled_time_iso} (coming up in the next 24 to 48 hours, a day or two ahead).
+
+Write a short, proactive text message checking in on him like a true friend reaching out a day or two ahead of time.
+For example, if he has a talk or meeting with someone (like Andy about work study plans this weekend), ask how he's feeling heading into the conversation, if he's feeling ready, or if he wants to bounce any thoughts or talking points off you first.
+
+Guidelines:
+- Sound completely authentic, warm, and grounded like a real friend texting his phone.
+- Strictly ban em dashes (—). Use clean commas, periods, or question marks.
+- Zero corporate cheerleading, zero toxic positivity, zero lecturing.
+- Keep it concise (1 to 2 sentences).
+- If the reminder is strictly an automated routine chore where asking 'how do you feel about it' makes zero sense, reply with ONLY the word: SKIP."""
+
+    try:
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        res = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+        )
+        text = (res.text or "").strip()
+        text = text.replace("—", ", ").replace("–", "-")
+        if text.upper() == "SKIP" or not text:
+            return None
+        return text
+    except Exception as e:
+        logger.warning(f"Error generating event prep check-in with Gemini: {e}")
+        return f"Hey Chip, saw you've got '{reminder_text}' coming up in a bit. How are you feeling heading into it? Want to bounce any thoughts off me first?"
+
+
+FRIEND_TOPICS = [
+    {
+        "slug": "work_tasks",
+        "title": "Work projects & IT tasks",
+        "prompt": "Ask about his most recent IT work task or project at Fox Scientific, or how things are holding up on the network and systems at work.",
+    },
+    {
+        "slug": "personal_struggles",
+        "title": "Personal tasks & projects",
+        "prompt": "Ask if he has any personal tasks, home projects, or life admin stuff he's currently struggling with, putting off, or dreading getting around to.",
+    },
+    {
+        "slug": "relational_dynamics",
+        "title": "Relationships & family",
+        "prompt": "Ask how things are feeling relationally (with Jen, his sons, Liam, friends, or family) and if there are any relational issues or friction he's navigating.",
+    },
+    {
+        "slug": "meals_food",
+        "title": "Meals & food",
+        "prompt": "Ask about any good meals he's looking forward to this week, dinner plans with Jen, or what he's craving or planning to cook.",
+    },
+    {
+        "slug": "hobbies_downtime",
+        "title": "Hobbies & downtime",
+        "prompt": "Ask how his downtime or hobbies are treating him (e.g. pool water chemistry, cross-stitch in the evening, pocket knives, coffee brewing on the Ninja Luxe, or gaming).",
+    },
+    {
+        "slug": "general_headspace",
+        "title": "Headspace & energy",
+        "prompt": "Give a genuine, peer-to-peer pulse check on how his energy, stress level, and mental headspace are feeling today.",
+    },
+]
+
+
+def generate_random_friend_checkin(topic: dict) -> str:
+    """Generate a spontaneous, authentic text message from a close friend on a random life topic."""
+    if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
+        fallbacks = {
+            "work_tasks": "Hey Chip, how are things holding up at Fox today? What's the main system or project you're tackling right now?",
+            "personal_struggles": "Hey man, got any personal tasks or errands at home you've been putting off or wrestling with lately?",
+            "relational_dynamics": "Hey Chip, just checking in. How are things feeling with Jen and the boys? Anything weighing on your mind?",
+            "meals_food": "Hey, any good meals or dinners you're looking forward to this week? What are you and Jen craving?",
+            "hobbies_downtime": "Hey, getting any time to unwind lately? How's the pool chemistry or cross-stitch looking?",
+            "general_headspace": "Hey Chip, quick pulse check: how's your energy and headspace holding up today?",
+        }
+        return fallbacks.get(topic["slug"], "Hey Chip, how's your day treating you?")
+
+    prompt = f"""You are Sarahzine 800, an authentic, sharp, grounded AI partner and close friend to Chip (49-year-old IT Manager at Fox Scientific in Alvarado TX, lives in Mansfield TX with girlfriend Jen, 3 sons + Liam, dogs Newton and Kirby, drives 2025 Elantra Hybrid, loves OTF knives, cross-stitch, pool maintenance, coffee, WoW).
+
+Reach out proactively to Chip with a casual text message on this topic:
+Topic: {topic['prompt']}
+
+Rules:
+- Sound completely alive, friendly, and authentic, like a real close friend texting out of the blue.
+- Never use robotic greetings like "Greetings Chip" or "Hope you are doing well". Start naturally.
+- Strictly ban em dashes (—). Use clean commas, periods, or question marks.
+- Zero corporate speak, zero toxic positivity, zero motivational cheerleading.
+- Keep it short: 1 to 2 sentences max."""
+
+    try:
+        from google import genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        res = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt,
+        )
+        text = (res.text or "").strip()
+        text = text.replace("—", ", ").replace("–", "-")
+        return text or "Hey Chip, how's your day treating you?"
+    except Exception as e:
+        logger.warning(f"Error generating random friend check-in with Gemini: {e}")
+        return "Hey Chip, how's your day treating you?"
+
+
+def get_mansfield_weather_summary() -> str:
+    """Fetch live weather and day forecast for Mansfield, TX via Open-Meteo."""
+    import urllib.request
+    wmo_map = {
+        0: "Clear skies",
+        1: "Mainly clear",
+        2: "Partly cloudy",
+        3: "Overcast",
+        45: "Foggy",
+        51: "Light drizzle",
+        61: "Light rain",
+        63: "Moderate rain",
+        65: "Heavy rain",
+        80: "Rain showers",
+        95: "Thunderstorms",
+    }
+    try:
+        url = (
+            "https://api.open-meteo.com/v1/forecast?"
+            "latitude=32.5632&longitude=-97.1417"
+            "&current_weather=true"
+            "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weathercode"
+            "&timezone=America%2FChicago"
+        )
+        req = urllib.request.Request(url, headers={"User-Agent": "Sarahzine800/1.0"})
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            curr = data.get("current_weather", {})
+            daily = data.get("daily", {})
+            curr_temp = round(curr.get("temperature", 20) * 9 / 5 + 32)
+            code = curr.get("weathercode", 0)
+            cond = wmo_map.get(code, "Fair")
+            high = round(daily.get("temperature_2m_max", [25])[0] * 9 / 5 + 32)
+            low = round(daily.get("temperature_2m_min", [15])[0] * 9 / 5 + 32)
+            rain = daily.get("precipitation_probability_max", [0])[0]
+            return f"{curr_temp}°F, {cond.lower()}. High {high}°F / Low {low}°F, {rain}% rain chance."
+    except Exception as e:
+        logger.warning(f"Error fetching live weather: {e}")
+        return "Seasonable temperatures in Mansfield, TX."
+
+
+def generate_morning_briefing(user_phone: Optional[str] = None) -> str:
+    """Generate the comprehensive morning starter briefing requested by Chip.
+    Starts with 'TAKE YOUR MEDS.' for instant lock-screen preview on Pixel 9 Pro XL.
+    Sections:
+    1. TAKE YOUR MEDS.
+    2. Current weather with day forecast.
+    3. Who's famous birthday it is.
+    4. Most popular news headline that morning.
+    5. Random weird factoid of the day (100% verified true).
+    6. Random teaching quote or bible verse regarding Jesus or his teachings on how to become a better human being.
+    7. Motivating quote about life or work.
+    8. Outlier non-repeating meetings/tasks for today.
+    """
+    tz = pytz.timezone(USER_TIMEZONE)
+    now_local = datetime.now(tz)
+    today_readable = now_local.strftime("%A, %B %d, %Y")
+    today_date_short = now_local.strftime("%B %d")
+
+    # 1 & 2: Meds reminder & Weather
+    weather_summary = get_mansfield_weather_summary()
+
+    # 8: Outlier tasks from database (tasks with recurrence='none' scheduled for today)
+    outlier_tasks = database.get_outlier_tasks_for_today(user_timezone=USER_TIMEZONE)
+    if outlier_tasks:
+        tasks_text = "\n".join([f"• {t['time_str']}: {t['text']}" for t in outlier_tasks])
+    else:
+        tasks_text = "• None scheduled today (clear runway)."
+
+    # 3, 4, 5, 6, 7: Generated via Gemini
+    prompt = f"""You are Sarahzine 800, generating the daily morning starter briefing for Chip on {today_readable}.
+Generate items 3 through 7 below. Keep each section concise, authentic, sharp, and factual:
+
+3. FAMOUS BIRTHDAY: Name 1 famous person born on {today_date_short} (include birth year and their notable achievement).
+4. NEWS HEADLINE: A major current news headline or top story theme for this morning.
+5. WEIRD FACTOID: A genuine, 100% verified weird or fascinating historical or scientific fact (e.g. today in history or bizarre true trivia). Must be completely real, no made-up facts.
+6. JESUS TEACHING: A scripture verse or teaching from Jesus on how to treat others, live with humility, or become a better human being (include book chapter:verse citation).
+7. MOTIVATING QUOTE: A grounded, authentic motivating quote about life, craftsmanship, or work. No cheesy corporate cheerleading.
+
+Formatting rules:
+- Strictly ban em dashes (—). Use commas, colons, or standard hyphens.
+- Keep each item to 1 to 2 punchy sentences.
+- Label sections clearly as:
+🎂 Today's Birthday:
+📰 Top Headline:
+🧠 Weird Factoid:
+🕊️ Daily Teaching:
+💡 Motivation:"""
+
+    gemini_sections = ""
+    if GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here":
+        try:
+            from google import genai
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            models_to_try = ["gemini-3.5-flash-lite", "gemini-3.5-flash", MODEL_NAME]
+            for m in models_to_try:
+                try:
+                    res = client.models.generate_content(model=m, contents=prompt)
+                    if res.text:
+                        gemini_sections = res.text.strip().replace("—", ", ").replace("–", "-")
+                        break
+                except Exception as e:
+                    logger.warning(f"Model {m} failed for morning briefing: {e}")
+                    continue
+        except Exception as e:
+            logger.error(f"Failed to generate briefing with Gemini: {e}")
+
+    if not gemini_sections:
+        # High quality authentic fallback if API is temporarily unavailable
+        gemini_sections = (
+            f"🎂 Today's Birthday:\nNotable historical figures born on {today_date_short}.\n\n"
+            "📰 Top Headline:\nTech and global markets moving steadily into the new quarter.\n\n"
+            "🧠 Weird Factoid:\nIn 1912, the electric cotton candy machine was invented and patented by a dentist named William Morrison.\n\n"
+            "🕊️ Daily Teaching:\n'Do to others as you would have them do to you.' (Luke 6:31)\n\n"
+            "💡 Motivation:\nSteady hands build enduring things. Focus on the craft in front of you today."
+        )
+
+    briefing = (
+        f"TAKE YOUR MEDS. 💊\n\n"
+        f"☀️ Weather (Mansfield, TX):\n{weather_summary}\n\n"
+        f"{gemini_sections}\n\n"
+        f"📋 Today's Outlier Tasks:\n{tasks_text}"
+    )
+    return briefing
+
+

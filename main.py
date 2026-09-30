@@ -47,8 +47,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="ChipAI - Personal AI Assistant",
-    description="24/7 Always-On Gemini Assistant with Proactive Reminders",
+    title="Sarahzine 800 - Personal AI Assistant",
+    description="24/7 Always-On Gemini Assistant with Proactive Reminders & Friend Check-ins",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -58,7 +58,7 @@ app = FastAPI(
 def root():
     return {
         "status": "online",
-        "service": "ChipAI SMS Assistant",
+        "service": "Sarahzine 800 SMS Assistant",
         "timezone": os.getenv("USER_TIMEZONE", "America/Chicago"),
         "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     }
@@ -133,7 +133,9 @@ async def handle_telegram_message(message: dict):
         logger.info(f"Processing Telegram message from {chat_id}: '{text}'")
 
         if text.startswith("/start"):
-            reply_text = "ChipAI online and connected. What are we working on, Chip?"
+            reply_text = "Sarahzine 800 online and connected. What are we working on, Chip?"
+        elif "briefing" in text.lower() or text.lower().strip() in ["/briefing", "start my day", "daily starter"]:
+            reply_text = assistant.generate_morning_briefing(user_phone=f"tg_{chat_id}")
         else:
             # Process message through Gemini
             user_identifier = f"tg_{chat_id}"
@@ -189,6 +191,37 @@ def trigger_reminder_check():
     """Manual trigger to force a reminder check."""
     scheduler.check_and_send_due_reminders()
     return {"status": "triggered"}
+
+
+@app.post("/api/proactive/event-prep")
+def trigger_event_prep_check():
+    """Manual trigger to check and dispatch upcoming event prep check-ins."""
+    scheduler.check_and_send_event_prep_checkins()
+    return {"status": "event_prep_checked"}
+
+
+@app.post("/api/proactive/friend-checkin")
+def trigger_friend_checkin():
+    """Manual trigger to evaluate and dispatch random friend check-ins."""
+    scheduler.check_and_send_random_friend_checkin()
+    return {"status": "friend_checkin_evaluated"}
+
+
+@app.get("/api/proactive")
+def get_proactive_checkins():
+    """List sent proactive check-ins from the database."""
+    with database.get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM proactive_checkins ORDER BY id DESC LIMIT 50")
+        rows = [dict(r) for r in cursor.fetchall()]
+        return {"count": len(rows), "checkins": rows}
+
+
+@app.get("/api/briefing")
+def preview_morning_briefing():
+    """Preview today's morning starter briefing with meds reminder."""
+    briefing = assistant.generate_morning_briefing()
+    return {"briefing": briefing}
 
 
 @app.get("/api/reminders")

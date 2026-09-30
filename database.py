@@ -57,7 +57,24 @@ def _create_tables_sqlite(conn: sqlite3.Connection) -> None:
         """
     )
     cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proactive_checkins (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_phone TEXT NOT NULL,
+            checkin_type TEXT NOT NULL,
+            subject_key TEXT NOT NULL,
+            context_text TEXT NOT NULL,
+            message_sent TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            UNIQUE(user_phone, subject_key)
+        )
+        """
+    )
+    cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, scheduled_time)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proactive_user_subject ON proactive_checkins(user_phone, subject_key)"
     )
     conn.commit()
 
@@ -90,7 +107,24 @@ def _create_tables_postgres(conn) -> None:
         """
     )
     cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proactive_checkins (
+            id SERIAL PRIMARY KEY,
+            user_phone TEXT NOT NULL,
+            checkin_type TEXT NOT NULL,
+            subject_key TEXT NOT NULL,
+            context_text TEXT NOT NULL,
+            message_sent TEXT NOT NULL,
+            sent_at TEXT NOT NULL,
+            UNIQUE(user_phone, subject_key)
+        )
+        """
+    )
+    cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, scheduled_time)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_proactive_user_subject ON proactive_checkins(user_phone, subject_key)"
     )
     conn.commit()
 
@@ -359,3 +393,192 @@ def get_recent_history(
         )
         rows = cursor.fetchall()
         return [{"role": row["role"], "content": row["content"]} for row in reversed(rows)]
+
+
+def record_proactive_checkin(
+    user_phone: str,
+    checkin_type: str,
+    subject_key: str,
+    context_text: str,
+    message_sent: str,
+    db_path: str = DB_FILE,
+) -> bool:
+    """Record a proactive check-in in the database. Returns True if saved, False if already sent (deduped)."""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_db(db_path) as conn:
+            execute_query(
+                conn,
+                """
+                INSERT INTO proactive_checkins (user_phone, checkin_type, subject_key, context_text, message_sent, sent_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (user_phone, checkin_type, subject_key, context_text, message_sent, now_iso),
+            )
+            return True
+    except Exception as e:
+        logger.info(f"Proactive check-in for subject '{subject_key}' already recorded or ignored: {e}")
+        return False
+
+
+def has_proactive_checkin_been_sent(
+    user_phone: str, subject_key: str, db_path: str = DB_FILE
+) -> bool:
+    """Check if a proactive check-in for this specific subject has already been sent to the user."""
+    with get_db(db_path) as conn:
+        cursor = execute_query(
+            conn,
+            """
+            SELECT id FROM proactive_checkins
+            WHERE user_phone = ? AND subject_key = ?
+            LIMIT 1
+            """,
+            (user_phone, subject_key),
+        )
+        return cursor.fetchone() is not None
+
+
+def get_last_proactive_checkin(
+    user_phone: Optional[str] = None,
+    checkin_type: Optional[str] = None,
+    db_path: str = DB_FILE,
+) -> Optional[Dict[str, Any]]:
+    """Return the most recent proactive check-in record for pacing."""
+    query = "SELECT * FROM proactive_checkins WHERE 1=1"
+    params: List[Any] = []
+    if user_phone:
+        query += " AND user_phone = ?"
+        params.append(user_phone)
+    if checkin_type:
+        query += " AND checkin_type = ?"
+        params.append(checkin_type)
+    query += " ORDER BY id DESC LIMIT 1"
+
+    with get_db(db_path) as conn:
+        cursor = execute_query(conn, query, tuple(params))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def count_recent_proactive_checkins(
+    user_phone: str,
+    checkin_type: str = "random_friend",
+    hours: float = 24.0,
+    db_path: str = DB_FILE,
+) -> int:
+    """Count how many proactive check-ins of a given type were sent to this user in the last `hours` hours."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(hours=hours)).isoformat()
+    with get_db(db_path) as conn:
+        cursor = execute_query(
+            conn,
+            """
+            SELECT COUNT(*) FROM proactive_checkins
+            WHERE user_phone = ? AND checkin_type = ? AND sent_at >= ?
+            """,
+            (user_phone, checkin_type, cutoff),
+        )
+        row = cursor.fetchone()
+        return row[0] if isinstance(row, (tuple, list)) else row["COUNT(*)"]
+
+
+def get_upcoming_reminders_window(
+    hours_ahead: float = 48.0,
+    db_path: str = DB_FILE,
+) -> List[Dict[str, Any]]:
+    """Return pending reminders that are scheduled within the next `hours_ahead` hours from now (e.g. 24-48 hours)."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    future = now + timedelta(hours=hours_ahead)
+    now_iso = now.isoformat()
+    future_iso = future.isoformat()
+
+    with get_db(db_path) as conn:
+        cursor = execute_query(
+            conn,
+            """
+            SELECT id, user_phone, reminder_text, scheduled_time, created_at, recurrence
+            FROM reminders
+            WHERE status = 'pending' AND scheduled_time > ? AND scheduled_time <= ?
+            ORDER BY scheduled_time ASC
+            """,
+            (now_iso, future_iso),
+        )
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_last_message_time(
+    user_phone: str,
+    db_path: str = DB_FILE,
+) -> Optional[datetime]:
+    """Get the UTC datetime of the last message in conversation history for this user."""
+    with get_db(db_path) as conn:
+        cursor = execute_query(
+            conn,
+            """
+            SELECT created_at FROM conversation_history
+            WHERE user_phone = ?
+            ORDER BY id DESC LIMIT 1
+            """,
+            (user_phone,),
+        )
+        row = cursor.fetchone()
+        if row:
+            try:
+                from dateutil import parser
+                return parser.parse(row["created_at"])
+            except Exception:
+                try:
+                    return datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
+                except Exception:
+                    pass
+    return None
+
+
+def get_outlier_tasks_for_today(
+    user_timezone: str = "America/Chicago",
+    db_path: str = DB_FILE,
+) -> List[Dict[str, Any]]:
+    """Return pending one-shot/non-recurring tasks scheduled for today in the user's local timezone."""
+    import pytz
+    try:
+        tz = pytz.timezone(user_timezone)
+    except Exception:
+        tz = pytz.timezone("America/Chicago")
+
+    now_local = datetime.now(tz)
+    start_of_day = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_of_day = now_local.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    start_utc = start_of_day.astimezone(timezone.utc).isoformat()
+    end_utc = end_of_day.astimezone(timezone.utc).isoformat()
+
+    with get_db(db_path) as conn:
+        cursor = execute_query(
+            conn,
+            """
+            SELECT id, reminder_text, scheduled_time, recurrence
+            FROM reminders
+            WHERE status = 'pending'
+              AND (recurrence = 'none' OR recurrence = '' OR recurrence IS NULL)
+              AND scheduled_time >= ? AND scheduled_time <= ?
+            ORDER BY scheduled_time ASC
+            """,
+            (start_utc, end_utc),
+        )
+        rows = cursor.fetchall()
+        tasks = []
+        for r in rows:
+            dt_utc = datetime.fromisoformat(r["scheduled_time"].replace("Z", "+00:00"))
+            dt_local = dt_utc.astimezone(tz)
+            time_str = dt_local.strftime("%I:%M %p").lstrip("0")
+            tasks.append({
+                "id": r["id"],
+                "text": r["reminder_text"],
+                "time_str": time_str,
+            })
+        return tasks
+
+

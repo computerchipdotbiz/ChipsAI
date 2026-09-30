@@ -83,7 +83,7 @@ def test_fastapi_health():
 
     root_res = client.get("/")
     assert root_res.status_code == 200
-    assert root_res.json()["service"] == "ChipAI SMS Assistant"
+    assert root_res.json()["service"] == "Sarahzine 800 SMS Assistant"
 
 
 def test_webhook_unauthorized():
@@ -117,3 +117,176 @@ def test_telegram_voice_webhook(monkeypatch):
     assert len(sent_voices) == 1
     assert sent_voices[0][1] == b"fake_voice_bytes"
     assert sent_voices[0][2] == "Echo: Hello from voice"
+
+
+def test_proactive_checkin_db_deduping(test_db):
+    user = "tg_123456"
+    # First insert succeeds
+    ok1 = database.record_proactive_checkin(
+        user, "event_prep", "event_prep_99", "Talk with Andy", "Hey, how do you feel?", db_path=test_db
+    )
+    assert ok1 is True
+    assert database.has_proactive_checkin_been_sent(user, "event_prep_99", db_path=test_db) is True
+
+    # Duplicate insert fails / is ignored (strict once-per-subject guarantee)
+    ok2 = database.record_proactive_checkin(
+        user, "event_prep", "event_prep_99", "Talk with Andy", "Hey duplicate text", db_path=test_db
+    )
+    assert ok2 is False
+
+    # Check last proactive checkin
+    last = database.get_last_proactive_checkin(user, db_path=test_db)
+    assert last is not None
+    assert last["subject_key"] == "event_prep_99"
+
+
+def test_upcoming_reminders_window(test_db):
+    user = "tg_123456"
+    now = datetime.now(timezone.utc)
+    in_30_hours = (now + timedelta(hours=30)).isoformat()
+    in_72_hours = (now + timedelta(hours=72)).isoformat()
+
+    r1 = database.add_reminder(user, "Talk to Andy about work study", in_30_hours, db_path=test_db)
+    r2 = database.add_reminder(user, "Project deadline next week", in_72_hours, db_path=test_db)
+
+    # 48-hour window should find r1 (30h away), not r2 (72h away)
+    upcoming = database.get_upcoming_reminders_window(hours_ahead=48.0, db_path=test_db)
+    ids = [item["id"] for item in upcoming]
+    assert r1 in ids
+    assert r2 not in ids
+
+
+def test_count_recent_proactive_checkins(test_db):
+    user = "tg_123456"
+    assert database.count_recent_proactive_checkins(user, "random_friend", hours=24.0, db_path=test_db) == 0
+
+    database.record_proactive_checkin(user, "random_friend", "topic_1", "desc", "msg1", db_path=test_db)
+    assert database.count_recent_proactive_checkins(user, "random_friend", hours=24.0, db_path=test_db) == 1
+
+    database.record_proactive_checkin(user, "random_friend", "topic_2", "desc", "msg2", db_path=test_db)
+    assert database.count_recent_proactive_checkins(user, "random_friend", hours=24.0, db_path=test_db) == 2
+
+
+def test_quiet_hours_logic():
+    import pytz
+    import assistant
+    tz = pytz.timezone("America/Chicago")
+
+    # 11:00 PM (23:00) -> quiet hours
+    dt_night = tz.localize(datetime(2026, 10, 1, 23, 15))
+    assert assistant.is_in_quiet_hours(dt_night) is True
+
+    # 4:30 AM (04:30) -> quiet hours
+    dt_early = tz.localize(datetime(2026, 10, 1, 4, 30))
+    assert assistant.is_in_quiet_hours(dt_early) is True
+
+    # 7:00 AM (07:00) -> waking hours (quiet hours ended)
+    dt_morning = tz.localize(datetime(2026, 10, 1, 7, 0))
+    assert assistant.is_in_quiet_hours(dt_morning) is False
+
+    # 2:00 PM (14:00) -> waking hours
+    dt_afternoon = tz.localize(datetime(2026, 10, 1, 14, 0))
+    assert assistant.is_in_quiet_hours(dt_afternoon) is False
+
+    # 9:59 PM (21:59) -> waking hours
+    dt_evening = tz.localize(datetime(2026, 10, 1, 21, 59))
+    assert assistant.is_in_quiet_hours(dt_evening) is False
+
+    # 10:00 PM (22:00) -> quiet hours started
+    dt_bedtime = tz.localize(datetime(2026, 10, 1, 22, 0))
+    assert assistant.is_in_quiet_hours(dt_bedtime) is True
+
+
+def test_event_prep_routine_skipping():
+    import assistant
+    # Automated routine tasks return None/skipped
+    assert assistant.generate_event_prep_checkin("Daily quote", "2026-10-01T14:00:00") is None
+    assert assistant.generate_event_prep_checkin("Take blood pressure medicine", "2026-10-01T14:00:00") is None
+
+    # Meaningful event returns proactive prep prompt text without em dashes
+    text = assistant.generate_event_prep_checkin("Talk to Andy about his work study plans", "2026-10-01T14:00:00")
+    assert text is not None
+    assert "Andy" in text or "work study" in text
+    assert "—" not in text
+
+
+def test_random_friend_topics_generation():
+    import assistant
+    assert len(assistant.FRIEND_TOPICS) >= 5
+    for topic in assistant.FRIEND_TOPICS:
+        msg = assistant.generate_random_friend_checkin(topic)
+        assert msg is not None
+        assert len(msg) > 10
+        assert "—" not in msg
+
+
+def test_outlier_tasks_for_today(test_db):
+    user = "tg_123456"
+    import pytz
+    tz = pytz.timezone("America/Chicago")
+    now_local = datetime.now(tz)
+
+    # 1. One-shot task scheduled for today at 3pm
+    today_3pm = now_local.replace(hour=15, minute=0, second=0).astimezone(timezone.utc).isoformat()
+    # 2. Daily recurring task scheduled for today at 4pm
+    today_4pm = now_local.replace(hour=16, minute=0, second=0).astimezone(timezone.utc).isoformat()
+    # 3. One-shot task scheduled for tomorrow
+    tomorrow_3pm = (now_local + timedelta(days=1)).replace(hour=15, minute=0, second=0).astimezone(timezone.utc).isoformat()
+
+    r1 = database.add_reminder(user, "Dentist appointment", today_3pm, recurrence="none", db_path=test_db)
+    r2 = database.add_reminder(user, "Daily vitamins", today_4pm, recurrence="daily", db_path=test_db)
+    r3 = database.add_reminder(user, "Car oil change", tomorrow_3pm, recurrence="none", db_path=test_db)
+
+    outliers = database.get_outlier_tasks_for_today(user_timezone="America/Chicago", db_path=test_db)
+    outlier_ids = [t["id"] for t in outliers]
+
+    # Only r1 should be in today's outlier list (r2 is recurring daily, r3 is tomorrow)
+    assert r1 in outlier_ids
+    assert r2 not in outlier_ids
+    assert r3 not in outlier_ids
+    assert outliers[0]["text"] == "Dentist appointment"
+    assert "3:00 PM" in outliers[0]["time_str"]
+
+
+def test_morning_briefing_starts_with_take_your_meds():
+    import assistant
+    briefing = assistant.generate_morning_briefing()
+
+    # 1. Must start with TAKE YOUR MEDS for Pixel 9 Pro XL notification banner
+    assert briefing.startswith("TAKE YOUR MEDS.")
+
+    # 2. Weather
+    assert "Weather" in briefing
+    assert "Mansfield, TX" in briefing
+
+    # 3. Birthday
+    assert "Today's Birthday" in briefing
+
+    # 4. Headline
+    assert "Top Headline" in briefing
+
+    # 5. Weird Factoid
+    assert "Weird Factoid" in briefing
+
+    # 6. Jesus Teaching
+    assert "Daily Teaching" in briefing
+
+    # 7. Motivation
+    assert "Motivation" in briefing
+
+    # 8. Outlier Tasks
+    assert "Today's Outlier Tasks" in briefing
+
+    # Formatting rule: No em dashes
+    assert "—" not in briefing
+
+
+def test_api_briefing_endpoint():
+    client = TestClient(app)
+    res = client.get("/api/briefing")
+    assert res.status_code == 200
+    data = res.json()
+    assert "briefing" in data
+    assert data["briefing"].startswith("TAKE YOUR MEDS.")
+
+

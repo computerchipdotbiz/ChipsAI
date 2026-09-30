@@ -1,5 +1,5 @@
 """
-Interactive Terminal Simulator for ChipAI
+Interactive Terminal Simulator for Sarahzine 800
 Allows testing conversations, reminders, and tool calling without needing Twilio.
 """
 import os
@@ -18,7 +18,7 @@ USER_PHONE = os.getenv("USER_PHONE_NUMBER", "+15555555555")
 
 def main():
     print("=" * 60)
-    print("🤖 Welcome to ChipAI Terminal Simulator")
+    print("🤖 Welcome to Sarahzine 800 Terminal Simulator")
     print(f"📱 Simulated Phone: {USER_PHONE}")
     print(f"⏰ User Timezone: {os.getenv('USER_TIMEZONE', 'America/Chicago')}")
     print("Type your message below. Type 'exit' or 'quit' to quit.")
