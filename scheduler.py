@@ -267,23 +267,42 @@ def check_inventory_watches():
             top_url = best_listing.get("url", "")
 
             prev_status = watch.get("last_status", "unknown")
+            target_price = watch.get("target_price")
             database.update_inventory_watch(watch_id, overall_status, price_str, top_retailer, top_url)
 
-            # Alert if newly in stock or newly detected
+            # Alert if newly in stock, newly detected, or hits target price
             should_alert = False
-            if overall_status == "In Stock" and prev_status != "In Stock":
+            price_match_reason = ""
+
+            if ("In Stock" in overall_status or "Available" in overall_status) and ("In Stock" not in prev_status and "Available" not in prev_status):
                 should_alert = True
+                price_match_reason = "Item is now available / in stock!"
             elif prev_status == "pending_scan" and listings:
                 should_alert = True
+                price_match_reason = "Initial scan found active listings!"
+
+            # Target price comparison
+            if target_price and prices:
+                try:
+                    target_num = float(re.sub(r"[^\d.]", "", str(target_price)))
+                    for p in prices:
+                        clean_p = float(re.sub(r"[^\d.]", "", str(p)))
+                        if 0 < clean_p <= target_num:
+                            should_alert = True
+                            price_match_reason = f"Price target met: found at ${clean_p:,.2f} (target: ${target_num:,.2f})!"
+                            break
+                except Exception:
+                    pass
 
             if should_alert:
                 chat_id = _resolve_telegram_chat_id(user_phone)
+                reason_line = f"• **Alert:** {price_match_reason}\n" if price_match_reason else ""
                 alert_text = (
-                    f"🚨 **Sarahzine Hardware Radar Update!**\n\n"
-                    f"Found an inventory update for **{product_name}**:\n"
+                    f"🚨 **Sarahzine Radar Alert: {product_name}**\n\n"
+                    f"{reason_line}"
                     f"• **Status:** {overall_status}\n"
                     f"• **Price:** {price_str}\n"
-                    f"• **Store:** {top_retailer}\n"
+                    f"• **Platform/Store:** {top_retailer}\n"
                 )
                 if top_url:
                     alert_text += f"• **Link:** {top_url}\n"

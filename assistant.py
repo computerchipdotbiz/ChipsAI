@@ -148,14 +148,14 @@ You communicate with Chip directly over Telegram (text, voice, and photo vision)
   * Movies/TV/Music: "The Crow", "Terminator 2", "SLC Punk!", "Dirty Dancing", "LOST", "The Sopranos", "The Walking Dead", Wheatus, Bryan Adams, Paula Abdul.
   * Hobbies: Out-The-Front (OTF) pocket knives, glamping (Postcard Cabins in Wimberley, Piney Woods in LaRue), cross-stitch while relaxing in the evenings, swimming pool maintenance (testing, CYA, alkalinity, timers).
 
-# Live Web Browsing & Tech Reseller Inventory Radar
-You have live internet browsing and tech reseller scraping tools:
-- `search_web`: Search the live web for technical specs, news, articles, and reviews.
+# Live Web Browsing & Universal Inventory Radar
+You have live internet browsing, deep scraping, and universal product radar tools:
+- `search_web`: Search the live web for technical specs, news, articles, reviews, or any query.
 - `browse_webpage`: Scrape and extract readable content from any webpage URL.
-- `check_tech_inventory`: Instantly scan top tech retailers (Newegg, CDW, B&H Photo, Micro Center, Insight, Provantage, Connection, and NVIDIA Direct) for live stock, pricing, and availability on hardware (e.g. 'Nvidia DGX Spark').
-- `watch_product_inventory`: Add a product to your 24/7 background radar so Sarahzine 800 continuously checks stock every 2 hours and automatically pings Chip on Telegram when in stock or price updates.
-- `list_inventory_watches`: List active hardware watchlist items.
-- `remove_inventory_watch`: Stop monitoring a product.
+- `check_tech_inventory`: Instantly scan secondary marketplaces (eBay, Mercari, Poshmark, Vinted, Grailed, Depop) AND tech retailers (Newegg, CDW, B&H Photo, Micro Center, Insight, Provantage, Connection, NVIDIA Direct) for live stock, active listings, pricing, and availability on ANY product, hat, apparel, collectible, or hardware (e.g. 'Goorin Bros Honey Badger hat', 'Nvidia DGX Spark').
+- `watch_product_inventory`: Add ANY item (from Goorin Bros hats, streetwear, and collectibles to Nvidia DGX Spark and GPUs) to your 24/7 background radar. Sarahzine 800 continuously checks platforms every 2 hours and automatically pings Chip on Telegram the moment an item is listed, becomes in stock, or hits his target price.
+- `list_inventory_watches`: List active watchlist items currently monitored on the radar.
+- `remove_inventory_watch`: Stop monitoring an item.
 {memories_block}"""
 
 
@@ -300,14 +300,15 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
         watch_id = database.add_inventory_watch(user_phone, product_name, str(retailers), target_price)
 
         import web_service
-        scan_data = web_service.check_tech_resellers(product_name)
+        scan_data = web_service.check_product_inventory(product_name, target_resellers=retailers)
         overall = scan_data.get("overall_availability", "Scanning")
         prices = scan_data.get("detected_prices", [])
-        price_str = prices[0] if prices else "Pending Quote"
+        price_str = prices[0] if prices else "Pending Quote / Active search"
         top_url = scan_data.get("listings", [{}])[0].get("url", "") if scan_data.get("listings") else ""
         top_reseller = scan_data.get("listings", [{}])[0].get("reseller", "") if scan_data.get("listings") else ""
         database.update_inventory_watch(watch_id, overall, price_str, top_reseller, top_url)
 
+        price_msg = f" (target price: {target_price})" if target_price else ""
         return {
             "success": True,
             "watch_id": watch_id,
@@ -315,7 +316,8 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
             "retailers": retailers,
             "initial_status": overall,
             "detected_price": price_str,
-            "message": f"Added '{product_name}' to 24/7 background radar (Watch #{watch_id}). Will automatically alert you on Telegram when in stock or prices update.",
+            "top_url": top_url,
+            "message": f"Added '{product_name}' to 24/7 background radar (Watch #{watch_id}){price_msg}. Polling platforms ({retailers}) every 2 hours and will alert you on Telegram when available.",
         }
 
     elif tool_name == "list_inventory_watches":
@@ -480,17 +482,17 @@ def get_assistant_tools() -> list:
         },
         {
             "name": "check_tech_inventory",
-            "description": "Scan major tech reseller websites (Newegg, CDW, B&H Photo, Micro Center, Insight, Provantage, Connection, NVIDIA Store, etc.) to check stock availability, product listings, and current pricing for hardware or electronics like Nvidia DGX Spark.",
+            "description": "Scan secondary marketplaces (eBay, Mercari, Poshmark, Vinted, Grailed, Depop) AND tech resellers (Newegg, CDW, B&H Photo, Micro Center, Insight, NVIDIA Direct) to check live stock availability, active listings, and current pricing for ANY item, hat, apparel, collectible, or hardware (e.g. 'Goorin Bros Honey Badger hat', 'Nvidia DGX Spark').",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
                     "product_name": {
                         "type": "STRING",
-                        "description": "The product or hardware model name to scan for (e.g. 'Nvidia DGX Spark').",
+                        "description": "The item name, product model, hat, or collectible to scan for (e.g. 'Goorin Bros Honey Badger hat', 'Nvidia DGX Spark').",
                     },
                     "retailers": {
                         "type": "STRING",
-                        "description": "Specific retailers or tech sellers to focus on (e.g. 'newegg, cdw, microcenter' or 'all'). Optional.",
+                        "description": "Specific platforms or sellers to focus on (e.g. 'eBay, Mercari, Poshmark, Vinted', 'Newegg, CDW', or 'all'). Optional.",
                     },
                 },
                 "required": ["product_name"],
@@ -498,21 +500,21 @@ def get_assistant_tools() -> list:
         },
         {
             "name": "watch_product_inventory",
-            "description": "Add a product (such as Nvidia DGX Spark) to the 24/7 background inventory watch radar. Automatically polls tech reseller sites every 2 hours and fires proactive Telegram alerts to Chip when in stock or prices update.",
+            "description": "Add ANY item (e.g. Goorin Bros Honey Badger hat, rare streetwear, collectibles, or Nvidia DGX Spark) to the 24/7 background inventory watch radar. Automatically polls marketplaces (eBay, Mercari, Poshmark, Vinted) and retailers every 2 hours and fires proactive Telegram alerts to Chip when newly listed, in stock, or below target price.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {
                     "product_name": {
                         "type": "STRING",
-                        "description": "Product name to monitor on the inventory radar (e.g., 'Nvidia DGX Spark').",
+                        "description": "Item name to monitor on the inventory radar (e.g. 'Goorin Bros Honey Badger hat', 'Nvidia DGX Spark').",
                     },
                     "retailers": {
                         "type": "STRING",
-                        "description": "Specific retailers to monitor (e.g. 'newegg, cdw' or 'all'). Defaults to 'all'.",
+                        "description": "Specific platforms or retailers to monitor (e.g. 'eBay, Mercari, Poshmark, Vinted' or 'all'). Defaults to 'all'.",
                     },
                     "target_price": {
                         "type": "STRING",
-                        "description": "Target or threshold price to alert on if specified (e.g. '$30,000' or 'quote'). Optional.",
+                        "description": "Target or threshold price to alert on if specified (e.g. '$50', '$6000'). Optional.",
                     },
                 },
                 "required": ["product_name"],
