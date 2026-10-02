@@ -761,9 +761,93 @@ def process_image_message(
         return "Sorry, I had trouble processing that image."
 
 
+CURATED_TEACHINGS = [
+    '"Let what you say be simply \'Yes\' or \'No\'; anything more than this comes from evil." (Matthew 5:37)',
+    '"Do not worry about tomorrow, for tomorrow will worry about itself. Each day has enough trouble of its own." (Matthew 6:34)',
+    '"Come to me, all who labor and are heavy laden, and I will give you rest. Take my yoke upon you, and learn from me, for I am gentle and lowly in heart." (Matthew 11:28-29)',
+    '"Whoever wants to become great among you must be your servant, and whoever wants to be first must be slave of all." (Mark 10:43-44)',
+    '"Everyone then who hears these words of mine and does them will be like a wise man who built his house on the rock. The rain fell, the floods came, and the winds blew, but it did not fall." (Matthew 7:24-25)',
+    '"Let your light shine before others, so that they may see your good works and give glory to your Father who is in heaven." (Matthew 5:16)',
+    '"Watch out! Be on your guard against all kinds of greed; life does not consist in an abundance of possessions." (Luke 12:15)',
+    '"Greater love has no one than this: to lay down one\'s life for one\'s friends." (John 15:13)',
+    '"Whenever you stand praying, forgive, if you have anything against anyone, so that your Father also who is in heaven may forgive you your trespasses." (Mark 11:25)',
+    '"When you give to the needy, do not let your left hand know what your right hand is doing, so that your giving may be in secret." (Matthew 6:3-4)',
+    '"Do not judge, and you will not be judged. Do not condemn, and you will not be condemned. Forgive, and you will be forgiven." (Luke 6:37)',
+    '"Blessed are the peacemakers, for they shall be called sons of God." (Matthew 5:9)',
+    '"You will know the truth, and the truth will set you free." (John 8:32)',
+    '"Love your enemies and pray for those who persecute you, so that you may be sons of your Father who is in heaven." (Matthew 5:44-45)',
+    '"One who is faithful in a very little is also faithful in much, and one who is dishonest in a very little is also dishonest in much." (Luke 16:10)',
+    '"For what does it profit a man to gain the whole world and forfeit his soul?" (Mark 8:36)',
+    '"Blessed are the meek, for they shall inherit the earth." (Matthew 5:5)',
+    '"Peace I leave with you; my peace I give to you. Not as the world gives do I give to you. Let not your hearts be troubled, neither let them be afraid." (John 14:27)',
+    '"For where your treasure is, there your heart will be also." (Matthew 6:21)',
+    '"Blessed are the merciful, for they shall receive mercy." (Matthew 5:7)',
+    '"A new commandment I give to you, that you love one another: just as I have loved you, you also are to love one another." (John 13:34)',
+    '"Do not be anxious about your life, what you will eat or what you will drink, nor about your body, what you will put on. Is not life more than food?" (Matthew 6:25)',
+    '"For everyone who exalts himself will be humbled, and he who humbles himself will be exalted." (Luke 14:11)',
+    '"Blessed are the pure in heart, for they shall see God." (Matthew 5:8)',
+    '"If anyone forces you to go one mile, go with them two miles." (Matthew 5:41)',
+    '"I am the vine; you are the branches. Whoever abides in me and I in him, he it is that bears much fruit." (John 15:5)',
+    '"Take care, and be on your guard against all covetousness." (Luke 12:15)',
+    '"If your brother sins against you, rebuke him, and if he repents, forgive him." (Luke 17:3)',
+    '"Ask, and it will be given to you; seek, and you will find; knock, and it will be opened to you." (Matthew 7:7)',
+    '"The harvest is plentiful, but the laborers are few." (Luke 10:2)',
+]
+
+CURATED_MOTIVATIONS = [
+    '"When you arise in the morning think of what a privilege it is to be alive: to breathe, to think, to enjoy, to love." - Marcus Aurelius',
+    '"It is not the critic who counts; the credit belongs to the man who is actually in the arena, whose face is marred by dust and sweat and blood." - Theodore Roosevelt',
+    '"We cannot choose our external circumstances, but we can always choose how we respond to them." - Epictetus',
+    '"Difficulties strengthen the mind, as labor does the body." - Seneca',
+    '"I do the very best I know how, the very best I can; and I mean to keep on doing so until the end." - Abraham Lincoln',
+    '"You may encounter many defeats, but you must not be defeated." - Maya Angelou',
+    '"When we are no longer able to change a situation, we are challenged to change ourselves." - Viktor Frankl',
+    '"Whether you think you can, or you think you can\'t, you\'re right." - Henry Ford',
+    '"The only way to do great work is to love what you do. Keep looking. Don\'t settle." - Steve Jobs',
+    '"Success is not final, failure is not fatal: it is the courage to continue that counts." - Winston Churchill',
+    '"The measure of who we are is what we do with what we have." - Vince Lombardi',
+    '"A journey of a thousand miles begins with a single step." - Lao Tzu',
+    '"Make each day your masterpiece." - John Wooden',
+    '"What lies behind us and what lies before us are tiny matters compared to what lies within us." - Ralph Waldo Emerson',
+    '"You can\'t go back and change the beginning, but you can start where you are and change the ending." - C.S. Lewis',
+    '"You do not rise to the level of your goals. You fall to the level of your systems." - James Clear',
+    '"It does not matter how slowly you go as long as you do not stop." - Confucius',
+    '"It is never too late to be what you might have been." - George Eliot',
+    '"Our greatest weakness lies in giving up. The most certain way to succeed is always to try just one more time." - Thomas Edison',
+    '"Do not pray for an easy life, pray for the strength to endure a difficult one." - Bruce Lee',
+    '"We are what we repeatedly do. Excellence, then, is not an act, but a habit." - Aristotle',
+    '"Start where you are. Use what you have. Do what you can." - Arthur Ashe',
+    '"Character, not circumstances, makes the person." - Booker T. Washington',
+    '"With the new day comes new strength and new thoughts." - Eleanor Roosevelt',
+    '"It always seems impossible until it\'s done." - Nelson Mandela',
+    '"Go confidently in the direction of your dreams. Live the life you have imagined." - Henry David Thoreau',
+    '"Whatever you can do, or dream you can, begin it. Boldness has genius, power, and magic in it." - Johann Wolfgang von Goethe',
+    '"The secret of getting ahead is getting started." - Mark Twain',
+    '"Steady hands build enduring things. Focus on the craft in front of you today."',
+    '"Action is the foundational key to all success." - Pablo Picasso',
+]
+
+
 def generate_daily_quote() -> str:
-    """Generate a grounded, punchy, authentic daily self-love and inspirational quote for Chip."""
-    prompt = """Generate a fresh, daily inspirational and self-love quote specifically for Chip (49-year-old IT pro, father, partner).
+    """Generate a grounded, punchy, authentic daily self-love and inspirational quote for Chip with dynamic rotation."""
+    tz = pytz.timezone(USER_TIMEZONE)
+    now_local = datetime.now(tz)
+    day_idx = now_local.timetuple().tm_yday
+    weekday_str = now_local.strftime("%A")
+
+    daily_themes = {
+        0: "Focus, initiative, and getting started on the week's goals",
+        1: "Quiet strength, self-respect, and resilience under pressure",
+        2: "Endurance, patience, and honoring the craft in the middle of the week",
+        3: "Integrity, straightforward truth, and building solid foundations",
+        4: "Finishing strong, protecting your loved ones, and generosity",
+        5: "Rest, unwinding, and unplugging from the noise",
+        6: "Gratitude, perspective, and renewing mental clarity",
+    }
+    theme = daily_themes.get(now_local.weekday(), "Resilience and craftsmanship")
+
+    prompt = f"""Generate a fresh, daily inspirational quote specifically for Chip (49-year-old IT pro, father, partner) on {weekday_str}.
+Today's focus theme: {theme}.
 Guidelines:
 - Grounded, authentic, sharp, and direct.
 - Zero cheesy corporate motivational fluff, zero sycophantic praise, zero toxic positivity.
@@ -773,19 +857,35 @@ Guidelines:
 Format:
 Start with: 💡 Sarahzine 800 Daily Fuel:
 Then the quote."""
-    try:
-        from google import genai
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        res = client.models.generate_content(
-            model=MODEL_NAME,
-            contents=prompt,
-        )
-        quote = (res.text or "").strip()
-        quote = quote.replace("—", ", ").replace("–", "-")
-        return quote
-    except Exception as e:
-        logger.error(f"Failed to generate daily quote: {e}")
-        return "💡 Sarahzine 800 Daily Fuel: You built the foundation. Now keep steady, trust your craft, and take care of your people today."
+
+    if GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here":
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            models_to_try = ["gemini-3.5-flash-lite", "gemini-3.5-flash", MODEL_NAME]
+            for m in models_to_try:
+                try:
+                    config = types.GenerateContentConfig(temperature=0.85)
+                    res = client.models.generate_content(
+                        model=m,
+                        contents=prompt,
+                        config=config,
+                    )
+                    quote = (res.text or "").strip()
+                    if quote:
+                        quote = quote.replace("—", ", ").replace("–", "-")
+                        return quote
+                except Exception as e:
+                    logger.warning(f"Model {m} failed for daily quote: {e}")
+                    continue
+        except Exception as e:
+            logger.error(f"Failed to generate daily quote with Gemini: {e}")
+
+    # Deterministic rotating fallback ensures it changes every single day
+    fallback_quote = CURATED_MOTIVATIONS[day_idx % len(CURATED_MOTIVATIONS)]
+    return f"💡 Sarahzine 800 Daily Fuel: {fallback_quote}"
 
 
 def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
@@ -1058,14 +1158,28 @@ def generate_morning_briefing(user_phone: Optional[str] = None) -> str:
         tasks_text = "• None scheduled today (clear runway)."
 
     # 3, 4, 5, 6, 7: Generated via Gemini
+    day_idx = now_local.timetuple().tm_yday
+    daily_themes = {
+        0: "Steadfastness, honest work, and setting an upright foundation for the week",
+        1: "Humility, service to others, and speaking plainly with integrity",
+        2: "Endurance, patience, and resisting greed or petty squabbles",
+        3: "Releasing worry, trusting God's provision, and seeking inner peace",
+        4: "Forgiveness, overcoming hatred with calm, and protecting your circle",
+        5: "Rest, quiet renewal, and not letting anxiety steal the weekend",
+        6: "Mercy, pure-hearted intentions, and tangible love for neighbors",
+    }
+    theme = daily_themes.get(now_local.weekday(), "Humility, craftsmanship, and upright living")
+
     prompt = f"""You are Sarahzine 800, generating the daily morning starter briefing for Chip on {today_readable}.
+Today's character & wisdom focus: {theme}.
 Generate items 3 through 7 below. Keep each section concise, authentic, sharp, and factual:
 
 3. FAMOUS BIRTHDAY: Name 1 famous person born on {today_date_short} (include birth year and their notable achievement).
 4. NEWS HEADLINE: A major current news headline or top story theme for this morning.
 5. WEIRD FACTOID: A genuine, 100% verified weird or fascinating historical or scientific fact (e.g. today in history or bizarre true trivia). Must be completely real, no made-up facts.
-6. JESUS TEACHING: A scripture verse or teaching from Jesus on how to treat others, live with humility, or become a better human being (include book chapter:verse citation).
-7. MOTIVATING QUOTE: A grounded, authentic motivating quote about life, craftsmanship, or work. No cheesy corporate cheerleading.
+6. JESUS TEACHING: A scripture verse or teaching from Jesus on {theme} (include book chapter:verse citation).
+   CRITICAL ANTI-REPETITION RULE: STRICTLY DO NOT use the Golden Rule ('Do unto others' / Luke 6:31 / Matthew 7:12) or John 3:16. Pick a fresh, lesser-quoted, deeply practical verse from Matthew, Mark, Luke, or John that speaks to {theme}!
+7. MOTIVATING QUOTE: A grounded, authentic motivating quote about life, resilience, or craftsmanship matching {theme}. (Quote a notable historical figure, builder, or philosopher like Marcus Aurelius, Theodore Roosevelt, Maya Angelou, Seneca, Epictetus, Abraham Lincoln, etc.). No cheesy corporate cheerleading.
 
 Formatting rules:
 - Strictly ban em dashes (—). Use commas, colons, or standard hyphens.
@@ -1081,11 +1195,14 @@ Formatting rules:
     if GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here":
         try:
             from google import genai
+            from google.genai import types
+
             client = genai.Client(api_key=GEMINI_API_KEY)
             models_to_try = ["gemini-3.5-flash-lite", "gemini-3.5-flash", MODEL_NAME]
             for m in models_to_try:
                 try:
-                    res = client.models.generate_content(model=m, contents=prompt)
+                    config = types.GenerateContentConfig(temperature=0.85)
+                    res = client.models.generate_content(model=m, contents=prompt, config=config)
                     if res.text:
                         gemini_sections = res.text.strip().replace("—", ", ").replace("–", "-")
                         break
@@ -1096,13 +1213,15 @@ Formatting rules:
             logger.error(f"Failed to generate briefing with Gemini: {e}")
 
     if not gemini_sections:
-        # High quality authentic fallback if API is temporarily unavailable
+        # High quality authentic fallback that rotates every day of the year
+        fallback_teaching = CURATED_TEACHINGS[day_idx % len(CURATED_TEACHINGS)]
+        fallback_motivation = CURATED_MOTIVATIONS[day_idx % len(CURATED_MOTIVATIONS)]
         gemini_sections = (
             f"🎂 Today's Birthday:\nNotable historical figures born on {today_date_short}.\n\n"
             "📰 Top Headline:\nTech and global markets moving steadily into the new quarter.\n\n"
             "🧠 Weird Factoid:\nIn 1912, the electric cotton candy machine was invented and patented by a dentist named William Morrison.\n\n"
-            "🕊️ Daily Teaching:\n'Do to others as you would have them do to you.' (Luke 6:31)\n\n"
-            "💡 Motivation:\nSteady hands build enduring things. Focus on the craft in front of you today."
+            f"🕊️ Daily Teaching:\n{fallback_teaching}\n\n"
+            f"💡 Motivation:\n{fallback_motivation}"
         )
 
     briefing = (
