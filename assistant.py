@@ -609,7 +609,11 @@ def process_message(user_phone: str, incoming_text: str) -> str:
                     for call in response.function_calls:
                         tool_name = call.name
                         args = dict(call.args) if call.args else {}
-                        tool_result = execute_tool(tool_name, args, user_phone)
+                        try:
+                            tool_result = execute_tool(tool_name, args, user_phone)
+                        except Exception as tool_err:
+                            logger.error(f"Error executing tool {tool_name}: {tool_err}", exc_info=True)
+                            tool_result = {"error": f"Tool execution failed: {str(tool_err)}"}
                         response_parts.append(
                             types.Part.from_function_response(
                                 name=tool_name,
@@ -718,7 +722,11 @@ def process_image_message(
                     for call in response.function_calls:
                         tool_name = call.name
                         args = dict(call.args) if call.args else {}
-                        tool_result = execute_tool(tool_name, args, user_phone)
+                        try:
+                            tool_result = execute_tool(tool_name, args, user_phone)
+                        except Exception as tool_err:
+                            logger.error(f"Error executing tool {tool_name}: {tool_err}", exc_info=True)
+                            tool_result = {"error": f"Tool execution failed: {str(tool_err)}"}
                         response_parts.append(
                             types.Part.from_function_response(
                                 name=tool_name,

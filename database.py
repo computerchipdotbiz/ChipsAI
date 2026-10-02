@@ -879,22 +879,33 @@ def add_inventory_watch(
     user_phone: str,
     product_name: str,
     retailers: str = "all",
-    target_price: Optional[float] = None
+    target_price: Optional[Any] = None
 ) -> int:
     """Add a product to the background inventory monitoring watchlist."""
     now_utc = datetime.now(timezone.utc).isoformat()
+    clean_target: Optional[float] = None
+    if target_price is not None:
+        try:
+            val = float(re.sub(r"[^\d.]", "", str(target_price)))
+            if val > 0:
+                clean_target = val
+        except Exception:
+            clean_target = None
+
     with get_db() as conn:
         cursor = execute_query(
             conn,
             """
             INSERT INTO inventory_watches (user_phone, product_name, retailers, target_price, last_status, is_active, created_at)
             VALUES (?, ?, ?, ?, 'pending_scan', 1, ?)
+            RETURNING id
             """,
-            (user_phone, product_name.strip(), retailers.strip(), target_price, now_utc)
+            (user_phone, product_name.strip(), retailers.strip(), clean_target, now_utc)
         )
-        if is_postgres():
-            return cursor.fetchone()["id"]
-        return cursor.lastrowid
+        row = cursor.fetchone()
+        if row is not None:
+            return row[0] if isinstance(row, (tuple, list)) else row["id"]
+        return getattr(cursor, "lastrowid", 1) or 1
 
 
 def get_active_inventory_watches(user_phone: Optional[str] = None) -> List[Dict[str, Any]]:
