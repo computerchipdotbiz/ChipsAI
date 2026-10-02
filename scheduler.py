@@ -234,6 +234,67 @@ def check_and_send_weather_alerts():
         logger.error(f"Error checking weather alerts: {e}", exc_info=True)
 
 
+def check_inventory_watches():
+    """Scan all active tech inventory items (e.g. Nvidia DGX Spark) and alert Chip if in stock or updated."""
+    try:
+        # Respect quiet hours to avoid waking Chip
+        if assistant.is_in_quiet_hours():
+            logger.debug("Quiet hours active. Skipping inventory checks.")
+            return
+
+        watches = database.get_active_inventory_watches()
+        if not watches:
+            return
+
+        import web_service
+        logger.info(f"Checking {len(watches)} active tech inventory watches...")
+
+        for watch in watches:
+            watch_id = watch["id"]
+            user_phone = watch["user_phone"]
+            product_name = watch["product_name"]
+            retailers_str = watch.get("retailers", "all")
+            retailers = [r.strip() for r in retailers_str.split(",")] if retailers_str != "all" else None
+
+            scan_res = web_service.check_tech_resellers(product_name, target_resellers=retailers)
+            overall_status = scan_res.get("overall_availability", "Unknown")
+            prices = scan_res.get("detected_prices", [])
+            price_str = prices[0] if prices else "Custom Enterprise Quote"
+            listings = scan_res.get("listings", [])
+
+            best_listing = listings[0] if listings else {}
+            top_retailer = best_listing.get("reseller", "Retailer")
+            top_url = best_listing.get("url", "")
+
+            prev_status = watch.get("last_status", "unknown")
+            database.update_inventory_watch(watch_id, overall_status, price_str, top_retailer, top_url)
+
+            # Alert if newly in stock or newly detected
+            should_alert = False
+            if overall_status == "In Stock" and prev_status != "In Stock":
+                should_alert = True
+            elif prev_status == "pending_scan" and listings:
+                should_alert = True
+
+            if should_alert:
+                chat_id = _resolve_telegram_chat_id(user_phone)
+                alert_text = (
+                    f"🚨 **Sarahzine Hardware Radar Update!**\n\n"
+                    f"Found an inventory update for **{product_name}**:\n"
+                    f"• **Status:** {overall_status}\n"
+                    f"• **Price:** {price_str}\n"
+                    f"• **Store:** {top_retailer}\n"
+                )
+                if top_url:
+                    alert_text += f"• **Link:** {top_url}\n"
+
+                sent = telegram_service.send_message(chat_id, alert_text)
+                if sent:
+                    logger.info(f"Inventory watch alert sent to {chat_id} for {product_name}.")
+    except Exception as e:
+        logger.error(f"Error checking inventory watches: {e}", exc_info=True)
+
+
 def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
     """Start the background scheduler for reminders, event prep, and friend check-ins."""
     global _scheduler
@@ -284,6 +345,15 @@ def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
         "interval",
         minutes=5,
         id="check_weather_alerts_job",
+        replace_existing=True,
+    )
+
+    # 6. Tech hardware inventory watches (checks every 2 hours)
+    _scheduler.add_job(
+        check_inventory_watches,
+        "interval",
+        hours=2,
+        id="check_inventory_watches_job",
         replace_existing=True,
     )
 

@@ -85,6 +85,24 @@ def _create_tables_sqlite(conn: sqlite3.Connection) -> None:
         """
     )
     cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_watches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_phone TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            retailers TEXT NOT NULL DEFAULT 'all',
+            target_price REAL,
+            last_status TEXT DEFAULT 'unknown',
+            last_price TEXT,
+            last_retailer TEXT,
+            last_url TEXT,
+            last_checked_at TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, scheduled_time)"
     )
     cursor.execute(
@@ -92,6 +110,9 @@ def _create_tables_sqlite(conn: sqlite3.Connection) -> None:
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_memories_user_subject ON user_memories(user_phone, subject)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_watches_user ON inventory_watches(user_phone, is_active)"
     )
     conn.commit()
 
@@ -151,6 +172,24 @@ def _create_tables_postgres(conn) -> None:
         """
     )
     cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS inventory_watches (
+            id SERIAL PRIMARY KEY,
+            user_phone TEXT NOT NULL,
+            product_name TEXT NOT NULL,
+            retailers TEXT NOT NULL DEFAULT 'all',
+            target_price REAL,
+            last_status TEXT DEFAULT 'unknown',
+            last_price TEXT,
+            last_retailer TEXT,
+            last_url TEXT,
+            last_checked_at TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_reminders_status_time ON reminders(status, scheduled_time)"
     )
     cursor.execute(
@@ -158,6 +197,9 @@ def _create_tables_postgres(conn) -> None:
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_memories_user_subject ON user_memories(user_phone, subject)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_watches_user ON inventory_watches(user_phone, is_active)"
     )
     conn.commit()
 
@@ -831,5 +873,86 @@ def get_ebook_library_summary() -> dict:
         "formats": formats,
         "categories": categories,
     }
+
+
+def add_inventory_watch(
+    user_phone: str,
+    product_name: str,
+    retailers: str = "all",
+    target_price: Optional[float] = None
+) -> int:
+    """Add a product to the background inventory monitoring watchlist."""
+    now_utc = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        cursor = execute_query(
+            conn,
+            """
+            INSERT INTO inventory_watches (user_phone, product_name, retailers, target_price, last_status, is_active, created_at)
+            VALUES (?, ?, ?, ?, 'pending_scan', 1, ?)
+            """,
+            (user_phone, product_name.strip(), retailers.strip(), target_price, now_utc)
+        )
+        if is_postgres():
+            return cursor.fetchone()["id"]
+        return cursor.lastrowid
+
+
+def get_active_inventory_watches(user_phone: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Retrieve all active inventory watches."""
+    with get_db() as conn:
+        if user_phone:
+            cursor = execute_query(
+                conn,
+                "SELECT * FROM inventory_watches WHERE user_phone = ? AND is_active = 1 ORDER BY id DESC",
+                (user_phone,)
+            )
+        else:
+            cursor = execute_query(
+                conn,
+                "SELECT * FROM inventory_watches WHERE is_active = 1 ORDER BY id DESC"
+            )
+        rows = cursor.fetchall()
+        return [dict(r) for r in rows]
+
+
+def update_inventory_watch(
+    watch_id: int,
+    last_status: str,
+    last_price: Optional[str] = None,
+    last_retailer: Optional[str] = None,
+    last_url: Optional[str] = None,
+) -> bool:
+    """Update check results for a watched item."""
+    now_utc = datetime.now(timezone.utc).isoformat()
+    with get_db() as conn:
+        cursor = execute_query(
+            conn,
+            """
+            UPDATE inventory_watches
+            SET last_status = ?, last_price = ?, last_retailer = ?, last_url = ?, last_checked_at = ?
+            WHERE id = ?
+            """,
+            (last_status, last_price, last_retailer, last_url, now_utc, watch_id)
+        )
+        return cursor.rowcount > 0
+
+
+def delete_inventory_watch(watch_id: int, user_phone: Optional[str] = None) -> bool:
+    """Deactivate or remove an inventory watch."""
+    with get_db() as conn:
+        if user_phone:
+            cursor = execute_query(
+                conn,
+                "UPDATE inventory_watches SET is_active = 0 WHERE id = ? AND user_phone = ?",
+                (watch_id, user_phone)
+            )
+        else:
+            cursor = execute_query(
+                conn,
+                "UPDATE inventory_watches SET is_active = 0 WHERE id = ?",
+                (watch_id,)
+            )
+        return cursor.rowcount > 0
+
 
 

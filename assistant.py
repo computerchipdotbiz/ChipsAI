@@ -143,9 +143,19 @@ You communicate with Chip directly over Telegram (text, voice, and photo vision)
 - Personal Interests & Tools:
   * Gaming: World of Warcraft (talent builds, class mechanics) and Last War: Survival (handles account DigitlArthas).
   * Tech gear: PLAUD NotePin AI voice recorder, Renpho Lynx smart ring.
+  * Hardware & In-House AI Research: Chip and his colleague Tim are actively researching the **NVIDIA DGX Spark** (deskside AI supercomputer with Grace Blackwell GB10 superchip, 128GB unified memory for running ~200B parameter models) for Fox Scientific in-house AI. You actively keep an eye on reseller inventory and pricing for him.
   * Coffee: Brews with a Ninja Luxe Café Premier machine using Lavazza Super Crema beans.
   * Movies/TV/Music: "The Crow", "Terminator 2", "SLC Punk!", "Dirty Dancing", "LOST", "The Sopranos", "The Walking Dead", Wheatus, Bryan Adams, Paula Abdul.
   * Hobbies: Out-The-Front (OTF) pocket knives, glamping (Postcard Cabins in Wimberley, Piney Woods in LaRue), cross-stitch while relaxing in the evenings, swimming pool maintenance (testing, CYA, alkalinity, timers).
+
+# Live Web Browsing & Tech Reseller Inventory Radar
+You have live internet browsing and tech reseller scraping tools:
+- `search_web`: Search the live web for technical specs, news, articles, and reviews.
+- `browse_webpage`: Scrape and extract readable content from any webpage URL.
+- `check_tech_inventory`: Instantly scan top tech retailers (Newegg, CDW, B&H Photo, Micro Center, Insight, Provantage, Connection, and NVIDIA Direct) for live stock, pricing, and availability on hardware (e.g. 'Nvidia DGX Spark').
+- `watch_product_inventory`: Add a product to your 24/7 background radar so Sarahzine 800 continuously checks stock every 2 hours and automatically pings Chip on Telegram when in stock or price updates.
+- `list_inventory_watches`: List active hardware watchlist items.
+- `remove_inventory_watch`: Stop monitoring a product.
 {memories_block}"""
 
 
@@ -253,6 +263,69 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
                 for b in results
             ],
         }
+
+    elif tool_name == "search_web":
+        query = args.get("query", "")
+        import web_service
+        results = web_service.search_web(query, max_results=5)
+        return {"query": query, "count": len(results), "results": results}
+
+    elif tool_name == "browse_webpage":
+        url = args.get("url", "")
+        import web_service
+        res = web_service.scrape_url(url, max_chars=3500)
+        return res
+
+    elif tool_name == "check_tech_inventory":
+        product_name = args.get("product_name", "Nvidia DGX Spark")
+        retailers = args.get("retailers")
+        import web_service
+        scan_data = web_service.check_tech_resellers(product_name, target_resellers=retailers)
+        formatted = web_service.format_inventory_summary_for_chat(scan_data)
+        return {
+            "product": product_name,
+            "overall_status": scan_data.get("overall_availability"),
+            "detected_prices": scan_data.get("detected_prices"),
+            "formatted_summary": formatted,
+            "raw_listings_count": len(scan_data.get("listings", [])),
+            "top_listings": scan_data.get("listings", [])[:6],
+        }
+
+    elif tool_name == "watch_product_inventory":
+        product_name = args.get("product_name", "Nvidia DGX Spark")
+        retailers = args.get("retailers", "all")
+        target_price = args.get("target_price")
+        if isinstance(retailers, list):
+            retailers = ", ".join(retailers)
+        watch_id = database.add_inventory_watch(user_phone, product_name, str(retailers), target_price)
+
+        import web_service
+        scan_data = web_service.check_tech_resellers(product_name)
+        overall = scan_data.get("overall_availability", "Scanning")
+        prices = scan_data.get("detected_prices", [])
+        price_str = prices[0] if prices else "Pending Quote"
+        top_url = scan_data.get("listings", [{}])[0].get("url", "") if scan_data.get("listings") else ""
+        top_reseller = scan_data.get("listings", [{}])[0].get("reseller", "") if scan_data.get("listings") else ""
+        database.update_inventory_watch(watch_id, overall, price_str, top_reseller, top_url)
+
+        return {
+            "success": True,
+            "watch_id": watch_id,
+            "product_name": product_name,
+            "retailers": retailers,
+            "initial_status": overall,
+            "detected_price": price_str,
+            "message": f"Added '{product_name}' to 24/7 background radar (Watch #{watch_id}). Will automatically alert you on Telegram when in stock or prices update.",
+        }
+
+    elif tool_name == "list_inventory_watches":
+        watches = database.get_active_inventory_watches(user_phone)
+        return {"count": len(watches), "watches": watches}
+
+    elif tool_name == "remove_inventory_watch":
+        watch_id = args.get("watch_id")
+        ok = database.delete_inventory_watch(int(watch_id), user_phone=user_phone)
+        return {"success": ok, "removed_id": watch_id}
 
     return {"error": f"Unknown tool: {tool_name}"}
 
@@ -375,6 +448,96 @@ def get_assistant_tools() -> list:
                     },
                 },
                 "required": [],
+            },
+        },
+        {
+            "name": "search_web",
+            "description": "Search the live web using search engines for real-time information, articles, announcements, product releases, pricing, specs, or general web queries.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {
+                        "type": "STRING",
+                        "description": "The search query string.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "browse_webpage",
+            "description": "Fetch, scrape, and extract clean text content from any public webpage or URL.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "url": {
+                        "type": "STRING",
+                        "description": "The full HTTP/HTTPS URL of the webpage to scrape and read.",
+                    },
+                },
+                "required": ["url"],
+            },
+        },
+        {
+            "name": "check_tech_inventory",
+            "description": "Scan major tech reseller websites (Newegg, CDW, B&H Photo, Micro Center, Insight, Provantage, Connection, NVIDIA Store, etc.) to check stock availability, product listings, and current pricing for hardware or electronics like Nvidia DGX Spark.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "product_name": {
+                        "type": "STRING",
+                        "description": "The product or hardware model name to scan for (e.g. 'Nvidia DGX Spark').",
+                    },
+                    "retailers": {
+                        "type": "STRING",
+                        "description": "Specific retailers or tech sellers to focus on (e.g. 'newegg, cdw, microcenter' or 'all'). Optional.",
+                    },
+                },
+                "required": ["product_name"],
+            },
+        },
+        {
+            "name": "watch_product_inventory",
+            "description": "Add a product (such as Nvidia DGX Spark) to the 24/7 background inventory watch radar. Automatically polls tech reseller sites every 2 hours and fires proactive Telegram alerts to Chip when in stock or prices update.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "product_name": {
+                        "type": "STRING",
+                        "description": "Product name to monitor on the inventory radar (e.g., 'Nvidia DGX Spark').",
+                    },
+                    "retailers": {
+                        "type": "STRING",
+                        "description": "Specific retailers to monitor (e.g. 'newegg, cdw' or 'all'). Defaults to 'all'.",
+                    },
+                    "target_price": {
+                        "type": "STRING",
+                        "description": "Target or threshold price to alert on if specified (e.g. '$30,000' or 'quote'). Optional.",
+                    },
+                },
+                "required": ["product_name"],
+            },
+        },
+        {
+            "name": "list_inventory_watches",
+            "description": "List all active product inventory watches currently being monitored on the background radar.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {},
+            },
+        },
+        {
+            "name": "remove_inventory_watch",
+            "description": "Remove or stop monitoring a product inventory watch by its numeric watch ID.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "watch_id": {
+                        "type": "INTEGER",
+                        "description": "The numeric ID of the inventory watch to remove.",
+                    },
+                },
+                "required": ["watch_id"],
             },
         },
     ]
