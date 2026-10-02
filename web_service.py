@@ -286,6 +286,29 @@ def _extract_price_and_availability(text: str) -> Dict[str, str]:
     return {"price": price, "status": status}
 
 
+def _is_relevant_match(product_name: str, item_title: str) -> bool:
+    """Ensure the scraped listing title actually pertains to the requested product."""
+    if not item_title:
+        return False
+    prod_lower = product_name.lower().strip()
+    title_lower = item_title.lower().strip()
+
+    # Hardware check: DGX Spark
+    if "dgx" in prod_lower or "spark" in prod_lower:
+        return ("dgx" in title_lower and "spark" in title_lower) or "dgx spark" in title_lower
+
+    # Honey Badger / Goorin Bros check
+    if "honey badger" in prod_lower or "badger" in prod_lower:
+        return "badger" in title_lower or "nasty" in title_lower
+
+    # General product tokens check: at least 50% of significant tokens must appear in title
+    tokens = [t for t in re.findall(r"\b[a-zA-Z0-9]{3,}\b", prod_lower) if t not in ["the", "for", "and", "with"]]
+    if not tokens:
+        return True
+    matches = sum(1 for t in tokens if t in title_lower)
+    return (matches / len(tokens)) >= 0.5
+
+
 def search_poshmark_direct(query: str, max_results: int = 6) -> List[Dict[str, Any]]:
     """Directly scrape Poshmark listings for an item."""
     listings = []
@@ -307,7 +330,7 @@ def search_poshmark_direct(query: str, max_results: int = 6) -> List[Dict[str, A
                     if not clean_title:
                         clean_title = text
 
-                    if not any(l["url"] == full_url for l in listings):
+                    if _is_relevant_match(query, clean_title) and not any(l["url"] == full_url for l in listings):
                         listings.append({
                             "reseller": "Poshmark",
                             "domain": "poshmark.com",
@@ -345,6 +368,9 @@ def check_product_inventory(product_name: str, target_resellers: Optional[Any] =
     elif isinstance(target_resellers, str) and target_resellers.lower() not in ["all", "none", ""]:
         targets = [t.strip().lower() for t in target_resellers.split(",")]
 
+    tech_keywords = ["nvidia", "dgx", "spark", "gpu", "rtx", "geforce", "server", "intel", "amd", "workstation", "supercomputer"]
+    is_tech_product = any(k in clean_product.lower() for k in tech_keywords)
+
     marketplace_keywords = ["ebay", "mercari", "poshmark", "vinted", "grailed", "depop", "etsy"]
     apparel_collectibles_keywords = [
         "hat", "cap", "shirt", "shoe", "sneaker", "hoodie", "jacket",
@@ -353,24 +379,34 @@ def check_product_inventory(product_name: str, target_resellers: Optional[Any] =
 
     is_marketplace_target = any(any(m in t for m in marketplace_keywords) for t in targets)
     is_apparel_collectible = any(w in clean_product.lower() for w in apparel_collectibles_keywords)
-    wants_marketplaces = is_marketplace_target or is_apparel_collectible or not targets
+
+    # Only search fashion/streetwear marketplaces if:
+    # 1. Item is apparel/collectible, OR
+    # 2. Marketplaces are explicitly in target platforms, OR
+    # 3. Item is NOT an enterprise tech server/GPU
+    wants_marketplaces = is_marketplace_target or is_apparel_collectible or (not is_tech_product and not targets)
+    wants_tech = is_tech_product or any(any(t_name in t for t_name in ["newegg", "cdw", "microcenter", "nvidia", "bh", "insight"]) for t in targets) or (not is_apparel_collectible and not targets)
 
     # 1. Poshmark direct search
     if wants_marketplaces:
         posh_results = search_poshmark_direct(clean_product, max_results=5)
-        findings.extend(posh_results)
+        for pr in posh_results:
+            if _is_relevant_match(clean_product, pr["title"]):
+                findings.append(pr)
 
     # 2. Marketplace queries via ddgs (eBay, Mercari, Vinted)
     if wants_marketplaces:
         queries_to_run = [
-            f"{clean_product} ebay",
-            f"{clean_product} mercari",
-            f"{clean_product} vinted",
+            f'"{clean_product}" ebay',
+            f'"{clean_product}" mercari',
+            f'"{clean_product}" vinted',
         ]
         for q in queries_to_run:
             ddgs_res = search_ddgs(q, max_results=3)
             for item in ddgs_res:
                 href = item["url"]
+                if not _is_relevant_match(clean_product, item["title"]):
+                    continue
                 if any(f["url"] == href for f in findings):
                     continue
 
@@ -395,13 +431,7 @@ def check_product_inventory(product_name: str, target_resellers: Optional[Any] =
                     "detected_status": parsed["status"],
                 })
 
-    # 3. Tech Resellers check (Newegg, CDW, Micro Center, B&H, NVIDIA, etc.)
-    wants_tech = (
-        not wants_marketplaces or
-        any(any(t_name in t for t_name in ["newegg", "cdw", "microcenter", "nvidia", "bh"]) for t in targets) or
-        any(tech_w in clean_product.lower() for tech_w in ["dgx", "nvidia", "gpu", "rtx", "spark", "server", "geforce", "intel", "amd"])
-    )
-
+    # 3. Tech Resellers check (Newegg, CDW, Micro Center, B&H, NVIDIA, Insight, Provantage, Connection)
     if wants_tech:
         resellers_to_check = TECH_RESELLERS
         if targets:
@@ -417,6 +447,9 @@ def check_product_inventory(product_name: str, target_resellers: Optional[Any] =
                 search_res = search_web(query, max_results=1)
 
             for item in search_res:
+                if not _is_relevant_match(clean_product, item["title"]):
+                    continue
+
                 clean_url = _clean_redirect_url(item["url"])
                 if any(f["url"] == clean_url for f in findings):
                     continue
@@ -441,8 +474,10 @@ def check_product_inventory(product_name: str, target_resellers: Optional[Any] =
 
     # 4. General fallback search if no specific listings found yet
     if not findings:
-        general_results = search_web(f'"{clean_product}" buy in stock price', max_results=4)
+        general_results = search_web(f'"{clean_product}" price in stock buy', max_results=4)
         for item in general_results:
+            if not _is_relevant_match(clean_product, item["title"]):
+                continue
             clean_url = _clean_redirect_url(item["url"])
             if any(f["url"] == clean_url for f in findings):
                 continue
@@ -461,13 +496,29 @@ def check_product_inventory(product_name: str, target_resellers: Optional[Any] =
     # Summarize findings
     in_stock_items = [f for f in findings if f["detected_status"] in ["In Stock", "In Stock / Listed", "Available / Listed"]]
     preorder_items = [f for f in findings if "Pre-Order" in f["detected_status"]]
-    quoted_items = [f for f in findings if "Quote" in f["detected_status"]]
+    quoted_items = [f for f in findings if "Quote" in f["detected_status"] or "Check Listing" in f.get("detected_price", "")]
 
-    overall_status = "In Stock / Available" if in_stock_items else (
-        "Pre-Order / Announced" if preorder_items else (
-            "Enterprise Quote Only" if quoted_items else "Checking Availability"
+    # If it's a pre-launch or enterprise hardware, don't claim in stock unless an explicit cart checkout is found
+    if is_tech_product:
+        # Check if any retailer has an actual cart checkout price
+        has_real_retail_price = any(
+            f["detected_price"] not in ["Check Listing / Inquire", "Call for Pricing / Not Listed", "See Listing"]
+            for f in findings
         )
-    )
+        if not has_real_retail_price:
+            overall_status = "Enterprise Quote / Pre-Order Only (No Retail Cart Checkout)"
+        elif in_stock_items:
+            overall_status = "In Stock / Available"
+        elif preorder_items:
+            overall_status = "Pre-Order / Announced"
+        else:
+            overall_status = "Enterprise Quote / Pre-Order Only"
+    else:
+        overall_status = "In Stock / Available" if in_stock_items else (
+            "Pre-Order / Announced" if preorder_items else (
+                "Enterprise Quote Only" if quoted_items else "Checking Availability"
+            )
+        )
 
     prices = [
         f["detected_price"] for f in findings
