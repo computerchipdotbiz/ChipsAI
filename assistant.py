@@ -333,6 +333,49 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
         ok = database.delete_inventory_watch(int(watch_id), user_phone=user_phone)
         return {"success": ok, "removed_id": watch_id}
 
+    elif tool_name == "check_amazon_vine_potluck":
+        try:
+            from scripts import vine_watcher
+            res = vine_watcher.check_and_capture_potluck(notify_telegram=True)
+            status = res.get("status")
+            items = res.get("items", [])
+            return {
+                "status": status,
+                "items_count": len(items),
+                "items": items,
+                "message": f"Checked Amazon Vine Potluck. Status: {status}. Found {len(items)} items and dispatched screenshot to Telegram."
+            }
+        except Exception as e:
+            return {"error": f"Failed to check Amazon Vine Potluck: {str(e)}"}
+
+    elif tool_name == "search_google_drive":
+        import google_service
+        query = args.get("query", "")
+        return google_service.search_drive(query)
+
+    elif tool_name == "search_gmail":
+        import google_service
+        query = args.get("query", "")
+        return google_service.search_gmail(query)
+
+    elif tool_name == "get_google_calendar":
+        import google_service
+        days = args.get("days_ahead", 7)
+        return google_service.get_calendar_events(days_ahead=int(days))
+
+    elif tool_name == "create_calendar_event":
+        import google_service
+        summary = args.get("summary", "")
+        start_time = args.get("start_time", "")
+        end_time = args.get("end_time", "")
+        description = args.get("description", "")
+        return google_service.create_calendar_event(summary, start_time, end_time, description)
+
+    elif tool_name == "search_google_photos":
+        import google_service
+        query = args.get("query", "")
+        return google_service.search_photos(query)
+
     return {"error": f"Unknown tool: {tool_name}"}
 
 
@@ -544,6 +587,94 @@ def get_assistant_tools() -> list:
                     },
                 },
                 "required": ["watch_id"],
+            },
+        },
+        {
+            "name": "check_amazon_vine_potluck",
+            "description": "Check Chip's Amazon Vine Potluck ('Recommended for you' queue), capture a visual screenshot of recommended items, and send the screenshot and direct links to Chip via Telegram.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {},
+            },
+        },
+        {
+            "name": "search_google_drive",
+            "description": "Search Chip's personal Google Drive for documents, sheets, slides, PDFs, notes, or files by name or content keyword.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {
+                        "type": "STRING",
+                        "description": "Search keyword or filename to search for in Google Drive.",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "search_gmail",
+            "description": "Search Chip's Gmail inbox for messages, tracking numbers, flight details, receipts, or conversations using standard Gmail queries.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {
+                        "type": "STRING",
+                        "description": "Gmail search query (e.g. 'from:andy', 'tracking number', 'receipt', 'doctor').",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+        {
+            "name": "get_google_calendar",
+            "description": "View Chip's upcoming events, meetings, and appointments on Google Calendar.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "days_ahead": {
+                        "type": "INTEGER",
+                        "description": "Number of days ahead to inspect (defaults to 7).",
+                    },
+                },
+            },
+        },
+        {
+            "name": "create_calendar_event",
+            "description": "Schedule a new appointment, reminder, or meeting directly onto Chip's Google Calendar.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "summary": {
+                        "type": "STRING",
+                        "description": "Title of the calendar event.",
+                    },
+                    "start_time": {
+                        "type": "STRING",
+                        "description": "ISO 8601 start time (e.g. '2026-10-10T14:00:00-05:00').",
+                    },
+                    "end_time": {
+                        "type": "STRING",
+                        "description": "ISO 8601 end time (optional).",
+                    },
+                    "description": {
+                        "type": "STRING",
+                        "description": "Event description or location notes.",
+                    },
+                },
+                "required": ["summary", "start_time"],
+            },
+        },
+        {
+            "name": "search_google_photos",
+            "description": "Search Chip's Google Photos media library by date, description, or album keyword.",
+            "parameters": {
+                "type": "OBJECT",
+                "properties": {
+                    "query": {
+                        "type": "STRING",
+                        "description": "Search term or filter for Google Photos.",
+                    },
+                },
             },
         },
     ]

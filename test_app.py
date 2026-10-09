@@ -290,6 +290,72 @@ def test_api_briefing_endpoint():
     assert data["briefing"].startswith("TAKE YOUR MEDS.")
 
 
+def test_email_service_unconfigured(monkeypatch):
+    import email_service
+    monkeypatch.setenv("SMTP_USER", "")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
+    # If host/user/password not set, returns False safely
+    res = email_service.send_gateway_text("Test briefing body")
+    assert res is False
+
+
+def test_email_service_with_mocked_smtp(monkeypatch):
+    import email_service
+    from unittest.mock import MagicMock
+
+    mock_smtp_instance = MagicMock()
+    mock_smtp_class = MagicMock(return_value=mock_smtp_instance)
+
+    monkeypatch.setenv("SMTP_HOST", "smtp.test.com")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USER", "test@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "secretpass")
+    monkeypatch.setenv("SMS_GATEWAY_EMAIL", "6822331191@vzwpix.com")
+    monkeypatch.setattr("smtplib.SMTP", mock_smtp_class)
+
+    res = email_service.send_gateway_text("Hello morning briefing!")
+    assert res is True
+    mock_smtp_instance.starttls.assert_called_once()
+    mock_smtp_instance.login.assert_called_once_with("test@example.com", "secretpass")
+    mock_smtp_instance.sendmail.assert_called_once()
+    mock_smtp_instance.quit.assert_called_once()
+
+
+def test_scheduler_morning_briefing_deduping(test_db, monkeypatch):
+    import scheduler
+    import assistant
+
+    monkeypatch.setattr(database, "DB_FILE", test_db)
+    monkeypatch.setattr("assistant.generate_morning_briefing", lambda user=None: "TAKE YOUR MEDS. Test briefing content")
+
+    email_dispatched = []
+    tg_dispatched = []
+    monkeypatch.setattr("email_service.send_gateway_text", lambda body, to_address=None, subject="": email_dispatched.append(body) or True)
+    monkeypatch.setattr("telegram_service.send_message", lambda chat_id, msg, reply_markup=None: tg_dispatched.append(msg) or True)
+
+    # First dispatch succeeds
+    scheduler.check_and_send_morning_briefing(db_path=test_db)
+    assert len(email_dispatched) == 1
+    assert len(tg_dispatched) == 1
+    assert "TAKE YOUR MEDS." in email_dispatched[0]
+
+    # Second dispatch on same day is skipped by deduplication
+    scheduler.check_and_send_morning_briefing(db_path=test_db)
+    assert len(email_dispatched) == 1
+    assert len(tg_dispatched) == 1
+
+
+def test_api_briefing_dispatch_endpoint(monkeypatch):
+    import scheduler
+    called = []
+    monkeypatch.setattr(scheduler, "check_and_send_morning_briefing", lambda: called.append(True))
+    client = TestClient(app)
+    res = client.post("/api/briefing/dispatch")
+    assert res.status_code == 200
+    assert res.json() == {"status": "dispatched"}
+    assert len(called) == 1
+
+
 def test_user_memories_crud(test_db):
     user = "tg_123456"
     # 1. Save new memory

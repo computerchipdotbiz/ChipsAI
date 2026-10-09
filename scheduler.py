@@ -5,6 +5,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import database
 import telegram_service
 import assistant
+import email_service
 
 logger = logging.getLogger("chipai.scheduler")
 
@@ -314,13 +315,73 @@ def check_inventory_watches():
         logger.error(f"Error checking inventory watches: {e}", exc_info=True)
 
 
+def check_and_send_morning_briefing(db_path: str = database.DB_FILE):
+    """Daily morning starter briefing dispatched at 7:30 AM Central.
+    Dispatches to Verizon MMS/SMS gateway (6822331191@vzwpix.com) and Telegram.
+    Dedupes so it only fires once per day.
+    """
+    try:
+        import pytz
+        tz = pytz.timezone(os.getenv("USER_TIMEZONE", "America/Chicago"))
+        now_local = datetime.now(tz)
+
+        default_chat_id = os.getenv("TELEGRAM_CHAT_ID", "5127043704")
+        user_phone = f"tg_{default_chat_id}"
+        date_str = now_local.strftime("%Y-%m-%d")
+        subject_key = f"morning_briefing_{date_str}"
+
+        if database.has_proactive_checkin_been_sent(user_phone, subject_key, db_path=db_path):
+            logger.debug(f"Morning briefing for {date_str} already sent today. Skipping.")
+            return
+
+        briefing = assistant.generate_morning_briefing(user_phone)
+        if not briefing:
+            return
+
+        # 1. Dispatch text via email-to-MMS gateway
+        gateway_dest = os.getenv("SMS_GATEWAY_EMAIL", "6822331191@vzwpix.com")
+        email_sent = email_service.send_gateway_text(
+            body=briefing,
+            to_address=gateway_dest,
+            subject="Sarahzine 800 Morning Briefing",
+        )
+
+        # 2. Dispatch to Telegram
+        chat_id = _resolve_telegram_chat_id(user_phone)
+        tg_sent = telegram_service.send_message(chat_id, briefing)
+
+        # 3. Record proactive checkin
+        database.record_proactive_checkin(
+            user_phone, "morning_briefing", subject_key, f"Morning starter briefing for {date_str}", briefing, db_path=db_path
+        )
+        logger.info(
+            f"Daily morning briefing for {date_str} dispatched. Email gateway: {email_sent}, Telegram: {tg_sent}."
+        )
+    except Exception as e:
+        logger.error(f"Error executing morning briefing check: {e}", exc_info=True)
+
+
+def check_and_send_vine_potluck(period_name: str = "Daily Drop"):
+    """Trigger the Amazon Vine Potluck screenshot and summary dispatch."""
+    try:
+        from scripts import vine_watcher
+        logger.info(f"Triggering scheduled Vine Potluck check ({period_name})...")
+        caption_prefix = f"🌿 **Sarahzine 800 • Amazon Vine Potluck Drop ({period_name})**\n\n"
+        vine_watcher.check_and_capture_potluck(notify_telegram=True, custom_caption_prefix=caption_prefix)
+    except Exception as e:
+        logger.error(f"Error executing Vine Potluck scheduled check: {e}", exc_info=True)
+
+
 def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
     """Start the background scheduler for reminders, event prep, and friend check-ins."""
     global _scheduler
     if _scheduler and _scheduler.running:
         return _scheduler
 
-    _scheduler = BackgroundScheduler()
+    import pytz
+    user_tz = pytz.timezone(getattr(assistant, "USER_TIMEZONE", "America/Chicago"))
+
+    _scheduler = BackgroundScheduler(timezone=user_tz)
 
     # 1. Exact due reminders (every 15s)
     _scheduler.add_job(
@@ -376,8 +437,43 @@ def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
         replace_existing=True,
     )
 
+    # 7. Morning starter briefing drop (7:30 AM local)
+    _scheduler.add_job(
+        check_and_send_morning_briefing,
+        "cron",
+        hour=7,
+        minute=30,
+        timezone=user_tz,
+        id="morning_briefing_job",
+        replace_existing=True,
+    )
+
+    # 8. Amazon Vine Potluck morning drop (8:30 AM local)
+    _scheduler.add_job(
+        check_and_send_vine_potluck,
+        "cron",
+        args=["8:30 AM Morning Drop"],
+        hour=8,
+        minute=30,
+        timezone=user_tz,
+        id="vine_potluck_morning_job",
+        replace_existing=True,
+    )
+
+    # 9. Amazon Vine Potluck afternoon drop (3:30 PM local)
+    _scheduler.add_job(
+        check_and_send_vine_potluck,
+        "cron",
+        args=["3:30 PM Afternoon Drop"],
+        hour=15,
+        minute=30,
+        timezone=user_tz,
+        id="vine_potluck_afternoon_job",
+        replace_existing=True,
+    )
+
     _scheduler.start()
-    logger.info("Background scheduler started with reminders, event prep, friend pings, evening decompression, and weather radar.")
+    logger.info("Background scheduler started with morning briefing (7:30 AM), reminders, event prep, friend pings, weather radar, and Vine Potluck drops.")
     return _scheduler
 
 

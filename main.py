@@ -1,4 +1,5 @@
 import os
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Form, HTTPException, Response, Request, status, BackgroundTasks
@@ -30,17 +31,32 @@ async def lifespan(app: FastAPI):
     logger.info("Starting background reminder scheduler...")
     scheduler.start_scheduler(interval_seconds=15)
 
-    # Auto-register Telegram webhook if bot token is configured
+    # Auto-register Telegram webhook or start long-polling worker
     tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    base_url = os.getenv("RENDER_EXTERNAL_URL", "https://chipsai.onrender.com")
+    tg_mode = os.getenv("TELEGRAM_MODE", "polling" if not os.getenv("RENDER") else "webhook").lower().strip()
+    polling_task = None
+
     if tg_token:
-        try:
-            telegram_service.set_webhook(f"{base_url}/telegram")
-            logger.info(f"Registered Telegram webhook at {base_url}/telegram")
-        except Exception as e:
-            logger.warning(f"Could not register Telegram webhook: {e}")
+        if tg_mode == "polling":
+            logger.info("Enabling Telegram Long-Polling worker for 24/7 direct updates...")
+            polling_task = asyncio.create_task(telegram_polling_worker())
+        else:
+            base_url = os.getenv("RENDER_EXTERNAL_URL", "https://chipsai.onrender.com")
+            try:
+                telegram_service.set_webhook(f"{base_url}/telegram")
+                logger.info(f"Registered Telegram webhook at {base_url}/telegram")
+            except Exception as e:
+                logger.warning(f"Could not register Telegram webhook: {e}")
 
     yield
+
+    if polling_task:
+        logger.info("Stopping Telegram polling worker...")
+        polling_task.cancel()
+        try:
+            await polling_task
+        except asyncio.CancelledError:
+            pass
 
     logger.info("Stopping background reminder scheduler...")
     scheduler.stop_scheduler()
@@ -204,6 +220,9 @@ async def handle_telegram_message(message: dict):
 
         elif "briefing" in clean_lower or clean_lower in ["/briefing", "start my day", "daily starter"]:
             reply_text = assistant.generate_morning_briefing(user_phone=user_identifier)
+            if any(k in clean_lower for k in ["text", "sms", "send", "phone"]):
+                import email_service
+                email_service.send_gateway_text(reply_text, subject="Sarahzine 800 Morning Briefing")
 
         elif clean_lower.startswith("/memories") or clean_lower in ["memories", "show memories", "what do you remember"]:
             mems = database.get_user_memories(user_identifier, limit=50)
@@ -288,6 +307,36 @@ async def handle_telegram_message(message: dict):
         logger.error(f"Error in background Telegram handler: {e}", exc_info=True)
 
 
+async def telegram_polling_worker():
+    """Background worker that continuously long-polls Telegram updates when in polling mode."""
+    # Delete any lingering webhook to avoid 409 conflict
+    telegram_service.delete_webhook()
+    logger.info("Telegram polling worker started. Listening for messages...")
+    offset = 0
+
+    while True:
+        try:
+            updates = await asyncio.to_thread(telegram_service.get_updates, offset, 20)
+            for u in updates:
+                offset = u.get("update_id", 0) + 1
+                if "callback_query" in u:
+                    cb = u["callback_query"]
+                    user_id = cb.get("from", {}).get("id")
+                    if telegram_service.is_authorized_tg(user_id):
+                        asyncio.create_task(handle_telegram_callback(cb))
+                elif "message" in u or "edited_message" in u:
+                    msg = u.get("message") or u.get("edited_message")
+                    chat_id = msg.get("chat", {}).get("id")
+                    if chat_id and telegram_service.is_authorized_tg(chat_id):
+                        asyncio.create_task(handle_telegram_message(msg))
+        except asyncio.CancelledError:
+            logger.info("Telegram polling worker cancelled.")
+            break
+        except Exception as e:
+            logger.error(f"Error in Telegram polling worker: {e}")
+            await asyncio.sleep(2)
+
+
 @app.post("/telegram")
 async def incoming_telegram(request: Request, background_tasks: BackgroundTasks):
     """
@@ -366,6 +415,13 @@ def preview_morning_briefing():
     """Preview today's morning starter briefing with meds reminder."""
     briefing = assistant.generate_morning_briefing()
     return {"briefing": briefing}
+
+
+@app.post("/api/briefing/dispatch")
+def dispatch_morning_briefing_now():
+    """Manually trigger and dispatch today's morning starter briefing to email-to-text gateway & Telegram."""
+    scheduler.check_and_send_morning_briefing()
+    return {"status": "dispatched"}
 
 
 @app.get("/api/reminders")

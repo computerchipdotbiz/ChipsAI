@@ -142,6 +142,58 @@ def send_voice(chat_id: str | int, audio_bytes: bytes, caption: str = "") -> boo
         return False
 
 
+def send_photo(chat_id: str | int, photo: bytes | str, caption: str = "", parse_mode: str = "Markdown") -> bool:
+    """Send an outbound Telegram photo with optional caption."""
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        logger.warning(f"[MOCK TG] Outbound photo to {chat_id}: (TELEGRAM_BOT_TOKEN not configured)")
+        return False
+
+    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    data = {"chat_id": str(chat_id)}
+    if caption:
+        data["caption"] = caption[:1024]
+    if parse_mode:
+        data["parse_mode"] = parse_mode
+
+    try:
+        import requests
+        if isinstance(photo, (bytes, bytearray)):
+            files = {"photo": ("vine_screenshot.png", bytes(photo), "image/png")}
+            resp = requests.post(url, data=data, files=files, timeout=35)
+        elif isinstance(photo, str) and (photo.startswith("http://") or photo.startswith("https://")):
+            data["photo"] = photo
+            resp = requests.post(url, data=data, timeout=35)
+        else:
+            # File path string or Path
+            with open(str(photo), "rb") as f:
+                files = {"photo": ("vine_screenshot.png", f.read(), "image/png")}
+                resp = requests.post(url, data=data, files=files, timeout=35)
+
+        res_json = resp.json()
+        if res_json.get("ok"):
+            logger.info(f"Telegram photo sent to {chat_id}")
+            return True
+        else:
+            # Retry without markdown if markdown parsing caused Telegram error
+            if parse_mode and "can't parse entities" in str(res_json).lower():
+                data.pop("parse_mode", None)
+                if isinstance(photo, (bytes, bytearray)):
+                    files = {"photo": ("vine_screenshot.png", bytes(photo), "image/png")}
+                    resp = requests.post(url, data=data, files=files, timeout=35)
+                else:
+                    with open(str(photo), "rb") as f:
+                        files = {"photo": ("vine_screenshot.png", f.read(), "image/png")}
+                        resp = requests.post(url, data=data, files=files, timeout=35)
+                return resp.json().get("ok", False)
+
+            logger.error(f"Telegram sendPhoto failed: {res_json}")
+            return False
+    except Exception as e:
+        logger.error(f"Failed to send photo to {chat_id}: {e}")
+        return False
+
+
 def set_webhook(webhook_url: str) -> bool:
     """Register the webhook URL with Telegram."""
     token = TELEGRAM_BOT_TOKEN
@@ -161,6 +213,43 @@ def set_webhook(webhook_url: str) -> bool:
     except Exception as e:
         logger.error(f"Failed to set Telegram webhook: {e}")
         return False
+
+
+def delete_webhook() -> bool:
+    """Delete any active Telegram webhook so polling can be used."""
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        return False
+    url = f"https://api.telegram.org/bot{token}/deleteWebhook"
+    req = urllib.request.Request(url)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            logger.info(f"Deleted Telegram webhook: {result}")
+            return result.get("ok", False)
+    except Exception as e:
+        logger.error(f"Failed to delete Telegram webhook: {e}")
+        return False
+
+
+def get_updates(offset: int = 0, timeout: int = 20) -> list:
+    """Fetch updates from Telegram Bot API via long polling."""
+    token = TELEGRAM_BOT_TOKEN
+    if not token:
+        return []
+    url = f"https://api.telegram.org/bot{token}/getUpdates?offset={offset}&timeout={timeout}"
+    req = urllib.request.Request(url)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout + 5) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            if result.get("ok"):
+                return result.get("result", [])
+            return []
+    except Exception as e:
+        # Expected on connection resets or timeouts
+        logger.debug(f"get_updates error: {e}")
+        return []
+
 
 
 def is_authorized_tg(chat_id: str | int) -> bool:
