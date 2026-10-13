@@ -28,12 +28,18 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing ChipAI database...")
     database.init_db()
 
+    # If running on Render, remain completely passive: do not run background scheduler or webhooks
+    if os.getenv("RENDER"):
+        logger.info("Render environment detected: Background scheduler and webhooks disabled (GCP VM is the primary runner).")
+        yield
+        return
+
     logger.info("Starting background reminder scheduler...")
     scheduler.start_scheduler(interval_seconds=15)
 
     # Auto-register Telegram webhook or start long-polling worker
     tg_token = os.getenv("TELEGRAM_BOT_TOKEN")
-    tg_mode = os.getenv("TELEGRAM_MODE", "polling" if not os.getenv("RENDER") else "webhook").lower().strip()
+    tg_mode = os.getenv("TELEGRAM_MODE", "polling").lower().strip()
     polling_task = None
 
     if tg_token:
