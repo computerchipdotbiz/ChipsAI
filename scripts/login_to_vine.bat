@@ -2,10 +2,10 @@
 setlocal
 chcp 65001 >nul
 set PYTHONIOENCODING=utf-8
-title Sarahzine 800 - Amazon Vine Login
+title Keyrah - Amazon Vine Login
 pushd "%~dp0.."
 echo ========================================================
-echo  Launching Amazon Vine Login for Sarahzine 800...
+echo  Launching Amazon Vine Login for Keyrah...
 echo ========================================================
 "C:\Users\DigitalArthas\anaconda3\python.exe" "scripts\vine_watcher.py" login
 if errorlevel 1 (

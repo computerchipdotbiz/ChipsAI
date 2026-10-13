@@ -1,5 +1,5 @@
 """
-Web Service for Sarahzine 800 (ChipAI)
+Web Service for Keyrah (ChipAI)
 Provides resilient live web search, deep page scraping, and real-time inventory
 and price tracking across:
 - Secondary marketplaces: eBay, Mercari, Poshmark, Vinted, Grailed, Depop, Etsy

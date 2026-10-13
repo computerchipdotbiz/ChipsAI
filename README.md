@@ -1,13 +1,13 @@
-# 🤖 Sarahzine 800 — Always-On 24/7 Personal AI Assistant & Proactive Companion
+# 🤖 Keyrah — Always-On 24/7 Personal AI Assistant & Proactive Companion
 
-Sarahzine 800 is an authentic, sharp, and proactive personal AI companion built for Chip. Powered by **Google Gemini**, Telegram (text & voice), and Twilio SMS. It lives in the cloud, listens and speaks over voice memos and text, schedules intelligent reminders, and proactively reaches out like a real friend (anticipatory prep check-ins ~10h before talks/events, random friend check-ins, and zero corporate fluff).
+Keyrah is an authentic, sharp, and proactive personal AI companion built for Chip. Powered by **Google Gemini**, Telegram (text & voice), and Twilio SMS. It lives in the cloud, listens and speaks over voice memos and text, schedules intelligent reminders, and proactively reaches out like a real friend (anticipatory prep check-ins ~10h before talks/events, random friend check-ins, and zero corporate fluff).
 
 ---
 
 ## 🌟 Key Features
 
 - **Direct Telegram & SMS Chat**: Text questions, brainstorm, or send voice memos with automated speech-to-text and Jenny neural voice replies.
-- **Anticipatory Prep Check-ins**: When an important talk or event is coming up (e.g. talking with Andy about work study plans), Sarahzine 800 proactively reaches out ~10 hours before to see how you're feeling and help talk through points.
+- **Anticipatory Prep Check-ins**: When an important talk or event is coming up (e.g. talking with Andy about work study plans), Keyrah proactively reaches out ~10 hours before to see how you're feeling and help talk through points.
 - **Random Friend Check-ins**: Reaches out periodically on random life topics (recent IT projects at Fox, personal tasks you're wrestling with, relationship dynamics, meals you're craving this week, hobbies/downtime) like a real friend.
 - **Strict Quiet Hours & Deduping**: Absolute quiet hours between 10:00 PM and 7:00 AM local time. Deduplicated so every subject is only checked once.
 - **Natural Language Reminders**: Natural scheduling with one-shot and recurring support (`daily`, `weekdays`, `weekly`).

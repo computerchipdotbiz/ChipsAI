@@ -83,7 +83,7 @@ def test_fastapi_health():
 
     root_res = client.get("/")
     assert root_res.status_code == 200
-    assert root_res.json()["service"] == "Sarahzine 800 SMS Assistant"
+    assert root_res.json()["service"] == "Keyrah SMS Assistant"
 
 
 def test_webhook_unauthorized():

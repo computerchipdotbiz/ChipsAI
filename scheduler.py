@@ -361,15 +361,20 @@ def check_and_send_morning_briefing(db_path: str = database.DB_FILE):
         logger.error(f"Error executing morning briefing check: {e}", exc_info=True)
 
 
-def check_and_send_vine_potluck(period_name: str = "Daily Drop"):
-    """Trigger the Amazon Vine Potluck screenshot and summary dispatch."""
+def send_vine_reminder(period_name: str = "Vine Check"):
+    """Send Chip a friendly reminder to check his Amazon Vine queue with a direct link."""
     try:
-        from scripts import vine_watcher
-        logger.info(f"Triggering scheduled Vine Potluck check ({period_name})...")
-        caption_prefix = f"🌿 **Keyrah • Amazon Vine Potluck Drop ({period_name})**\n\n"
-        vine_watcher.check_and_capture_potluck(notify_telegram=True, custom_caption_prefix=caption_prefix)
+        user_tg_id = os.getenv("TELEGRAM_CHAT_ID", "5127043704")
+        logger.info(f"Triggering scheduled Vine reminder ({period_name})...")
+        vine_url = "https://www.amazon.com/vine/vine-items?queue=potluck"
+        text = (
+            f"🌿 **Keyrah • Amazon Vine Reminder**\n\n"
+            f"Hey Chip, time to check your Vine queue!\n\n"
+            f"🔗 [Open Amazon Vine Potluck]({vine_url})"
+        )
+        telegram_service.send_message(user_tg_id, text)
     except Exception as e:
-        logger.error(f"Error executing Vine Potluck scheduled check: {e}", exc_info=True)
+        logger.error(f"Error executing Vine reminder: {e}", exc_info=True)
 
 
 def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
@@ -430,20 +435,20 @@ def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
         replace_existing=True,
     )
 
-    # 8. Amazon Vine Potluck checks (Every 2 hours between 8:00 AM and 9:00 PM CST)
+    # 8. Amazon Vine Reminders (Every 2 hours between 8:00 AM and 8:00 PM CST)
     _scheduler.add_job(
-        check_and_send_vine_potluck,
+        send_vine_reminder,
         "cron",
-        args=["Vine Check"],
+        args=["Vine Reminder"],
         hour="8,10,12,14,16,18,20",
         minute=0,
         timezone=user_tz,
-        id="vine_potluck_periodic_job",
+        id="vine_reminder_periodic_job",
         replace_existing=True,
     )
 
     _scheduler.start()
-    logger.info("Background scheduler started with morning briefing (7:30 AM), reminders, weather radar, and Vine checks.")
+    logger.info("Background scheduler started with morning briefing (7:30 AM), reminders, weather radar, and Vine reminders (8am-8pm).")
     return _scheduler
 
 

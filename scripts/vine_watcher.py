@@ -1,6 +1,6 @@
 """
 scripts/vine_watcher.py
-Automated Amazon Vine Potluck (RFY) monitor for Sarahzine 800.
+Automated Amazon Vine Potluck (RFY) monitor for Keyrah.
 Monitors https://www.amazon.com/vine/vine-items?queue=potluck
 Captures screenshots and sends direct product links to Telegram.
 """
@@ -53,7 +53,7 @@ def interactive_login():
     from playwright.sync_api import sync_playwright
 
     print("=" * 65)
-    print("[*] SARAHZINE 800 - AMAZON VINE AUTHENTICATION SETUP")
+    print("[*] KEYRAH - AMAZON VINE AUTHENTICATION SETUP")
     print("=" * 65)
     print(f"Profile location: {PROFILE_DIR}")
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
@@ -161,7 +161,7 @@ def check_and_capture_potluck(notify_telegram: bool = True, custom_caption_prefi
                 if notify_telegram:
                     telegram_service.send_message(
                         TARGET_CHAT_ID,
-                        "⚠️ **Sarahzine Vine Alert**: Hey Chip, my Amazon Vine session has expired! Please run option 2 to re-authenticate."
+                        "⚠️ **Keyrah Vine Alert**: Hey Chip, my Amazon Vine session has expired! Please run option 2 to re-authenticate."
                     )
                 context.close()
                 return {"status": "expired"}
@@ -173,7 +173,7 @@ def check_and_capture_potluck(notify_telegram: bool = True, custom_caption_prefi
                 if notify_telegram:
                     telegram_service.send_message(
                         TARGET_CHAT_ID,
-                        "🤖 **Sarahzine Alert**: Amazon showed a CAPTCHA challenge on Vine. Running `python scripts/vine_watcher.py login` once will clear it."
+                        "🤖 **Keyrah Alert**: Amazon showed a CAPTCHA challenge on Vine. Running `python scripts/vine_watcher.py login` once will clear it."
                     )
                 context.close()
                 return {"status": "captcha"}
@@ -243,7 +243,7 @@ def check_and_capture_potluck(notify_telegram: bool = True, custom_caption_prefi
     if notify_telegram and screenshot_bytes:
         now_str = datetime.now().strftime("%I:%M %p").lstrip("0")
         
-        prefix = custom_caption_prefix or f"🌿 **Sarahzine 800 • Vine Potluck ({now_str})**\n\n"
+        prefix = custom_caption_prefix or f"🌿 **Keyrah • Vine Potluck ({now_str})**\n\n"
         caption = prefix
         caption += f"Here are your Recommended For You items! (You have **3 picks** available today):\n\n"
 

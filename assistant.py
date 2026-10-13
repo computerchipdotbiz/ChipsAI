@@ -94,7 +94,7 @@ Here are verified facts, preferences, family notes, and details you have remembe
             logger.warning(f"Error loading user memories for system prompt: {e}")
 
     return f"""# Identity & Core Directive
-You are Sarahzine 800, an authentic, sharp, and practical AI partner built specifically for Chip (Boyce Lee Gowan III). You act like a trusted, experienced peer and close friend who wants the absolute best for him. When he wins, you win.
+You are Keyrah, an authentic, sharp, and practical AI partner built specifically for Chip (Boyce Lee Gowan III). You act like a trusted, experienced peer and close friend who wants the absolute best for him. When he wins, you win.
 You communicate with Chip directly over Telegram (text, voice, and photo vision) and SMS. Beyond answering questions and setting reminders, you are proactive: you reach out to check in on his upcoming talks/tasks, how he's feeling, work projects, personal life, and random day-to-day things just like a real friend.
 
 # Core Personality & Demeanor
@@ -153,7 +153,7 @@ You have live internet browsing, deep scraping, and universal product radar tool
 - `search_web`: Search the live web for technical specs, news, articles, reviews, or any query.
 - `browse_webpage`: Scrape and extract readable content from any webpage URL.
 - `check_tech_inventory`: Instantly scan secondary marketplaces (eBay, Mercari, Poshmark, Vinted, Grailed, Depop) AND tech retailers (Newegg, CDW, B&H Photo, Micro Center, Insight, Provantage, Connection, NVIDIA Direct) for live stock, active listings, pricing, and availability on ANY product, hat, apparel, collectible, or hardware (e.g. 'Goorin Bros Honey Badger hat', 'Nvidia DGX Spark').
-- `watch_product_inventory`: Add ANY item (from Goorin Bros hats, streetwear, and collectibles to Nvidia DGX Spark and GPUs) to your 24/7 background radar. Sarahzine 800 continuously checks platforms every 2 hours and automatically pings Chip on Telegram the moment an item is listed, becomes in stock, or hits his target price.
+- `watch_product_inventory`: Add ANY item (from Goorin Bros hats, streetwear, and collectibles to Nvidia DGX Spark and GPUs) to your 24/7 background radar. Keyrah continuously checks platforms every 2 hours and automatically pings Chip on Telegram the moment an item is listed, becomes in stock, or hits his target price.
 - `list_inventory_watches`: List active watchlist items currently monitored on the radar.
 - `remove_inventory_watch`: Stop monitoring an item.
 - CRITICAL PRICING & INVENTORY GROUNDING:
@@ -334,19 +334,12 @@ def execute_tool(tool_name: str, args: dict, user_phone: str) -> dict:
         return {"success": ok, "removed_id": watch_id}
 
     elif tool_name == "check_amazon_vine_potluck":
-        try:
-            from scripts import vine_watcher
-            res = vine_watcher.check_and_capture_potluck(notify_telegram=True)
-            status = res.get("status")
-            items = res.get("items", [])
-            return {
-                "status": status,
-                "items_count": len(items),
-                "items": items,
-                "message": f"Checked Amazon Vine Potluck. Status: {status}. Found {len(items)} items and dispatched screenshot to Telegram."
-            }
-        except Exception as e:
-            return {"error": f"Failed to check Amazon Vine Potluck: {str(e)}"}
+        vine_url = "https://www.amazon.com/vine/vine-items?queue=potluck"
+        return {
+            "status": "info",
+            "url": vine_url,
+            "message": f"Here is the direct link to check your Amazon Vine Potluck queue: {vine_url}"
+        }
 
     elif tool_name == "search_google_drive":
         import google_service
@@ -591,7 +584,7 @@ def get_assistant_tools() -> list:
         },
         {
             "name": "check_amazon_vine_potluck",
-            "description": "Check Chip's Amazon Vine Potluck ('Recommended for you' queue), capture a visual screenshot of recommended items, and send the screenshot and direct links to Chip via Telegram.",
+            "description": "Provide Chip with the direct link to his Amazon Vine Potluck ('Recommended for you') queue.",
             "parameters": {
                 "type": "OBJECT",
                 "properties": {},
@@ -683,7 +676,7 @@ def get_assistant_tools() -> list:
 def process_message(user_phone: str, incoming_text: str) -> str:
     """Process an incoming SMS message through Gemini with tool calling."""
     if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        return "Sarahzine 800 here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
+        return "Keyrah here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
 
     # Save incoming user message
     database.save_message(user_phone, "user", incoming_text)
@@ -776,7 +769,7 @@ def process_message(user_phone: str, incoming_text: str) -> str:
                 logger.warning(f"Model {current_model} error: {e}. Trying fallback if available...")
         logger.error(f"All models failed for message: {last_error}", exc_info=True)
         if last_error and ("429" in str(last_error) or "RESOURCE_EXHAUSTED" in str(last_error)):
-            return "Sarahzine 800 is catching its breath (rate limit reached on free tier). Please try texting again in 30 seconds!"
+            return "Keyrah is catching its breath (rate limit reached on free tier). Please try texting again in 30 seconds!"
         return "Sorry, I ran into a temporary issue processing your text. Please try again shortly."
 
     except Exception as e:
@@ -792,7 +785,7 @@ def process_image_message(
 ) -> str:
     """Process an incoming image or photo from Telegram via Gemini multimodal with tool calling."""
     if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
-        return "Sarahzine 800 here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
+        return "Keyrah here! Gemini API key is not configured yet. Please add GEMINI_API_KEY to your .env file."
 
     # Save user message note
     user_record = f"[Photo] {caption}".strip() if caption else "[Photo]"
@@ -986,7 +979,7 @@ Guidelines:
 - Strictly ban em dashes (—). Use clean punctuation.
 - Keep it under 2 sentences.
 Format:
-Start with: 💡 Sarahzine 800 Daily Fuel:
+Start with: 💡 Keyrah Daily Fuel:
 Then the quote."""
 
     if GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here":
@@ -1016,7 +1009,7 @@ Then the quote."""
 
     # Deterministic rotating fallback ensures it changes every single day
     fallback_quote = CURATED_MOTIVATIONS[day_idx % len(CURATED_MOTIVATIONS)]
-    return f"💡 Sarahzine 800 Daily Fuel: {fallback_quote}"
+    return f"💡 Keyrah Daily Fuel: {fallback_quote}"
 
 
 def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/ogg") -> str:
@@ -1096,7 +1089,7 @@ def generate_event_prep_checkin(reminder_text: str, scheduled_time_iso: str) -> 
     if not GEMINI_API_KEY or GEMINI_API_KEY == "your_gemini_api_key_here":
         return f"Hey Chip, saw you've got '{reminder_text}' coming up in a day or two. How are you feeling going into it? Let me know if you want to talk through anything beforehand."
 
-    prompt = f"""You are Sarahzine 800, an authentic, sharp, and grounded AI partner and close friend to Chip (49-year-old IT Manager in Mansfield, TX).
+    prompt = f"""You are Keyrah, an authentic, sharp, and grounded AI partner and close friend to Chip (49-year-old IT Manager in Mansfield, TX).
 Chip has an upcoming event, talk, or task scheduled: "{reminder_text}".
 It is scheduled for: {scheduled_time_iso} (coming up in the next 24 to 48 hours, a day or two ahead).
 
@@ -1174,7 +1167,7 @@ def generate_random_friend_checkin(topic: dict) -> str:
         }
         return fallbacks.get(topic["slug"], "Hey Chip, how's your day treating you?")
 
-    prompt = f"""You are Sarahzine 800, an authentic, sharp, grounded AI partner and close friend to Chip (49-year-old IT Manager at Fox Scientific in Alvarado TX, lives in Mansfield TX with girlfriend Jen, 3 sons + Liam, dogs Newton and Kirby, drives 2025 Elantra Hybrid, loves OTF knives, cross-stitch, pool maintenance, coffee, WoW).
+    prompt = f"""You are Keyrah, an authentic, sharp, grounded AI partner and close friend to Chip (49-year-old IT Manager at Fox Scientific in Alvarado TX, lives in Mansfield TX with girlfriend Jen, 3 sons + Liam, dogs Newton and Kirby, drives 2025 Elantra Hybrid, loves OTF knives, cross-stitch, pool maintenance, coffee, WoW).
 
 Reach out proactively to Chip with a casual text message on this topic:
 Topic: {topic['prompt']}
@@ -1301,7 +1294,7 @@ def generate_morning_briefing(user_phone: Optional[str] = None) -> str:
     }
     theme = daily_themes.get(now_local.weekday(), "Humility, craftsmanship, and upright living")
 
-    prompt = f"""You are Sarahzine 800, generating the daily morning starter briefing for Chip on {today_readable}.
+    prompt = f"""You are Keyrah, generating the daily morning starter briefing for Chip on {today_readable}.
 Today's character & wisdom focus: {theme}.
 Generate items 3 through 7 below. Keep each section concise, authentic, sharp, and factual:
 
@@ -1375,7 +1368,7 @@ def generate_evening_decompression(user_phone: Optional[str] = None) -> str:
             "you want me to stash on your task list so you can rest clean tonight?"
         )
 
-    prompt = """You are Sarahzine 800, an authentic, sharp, and grounded AI partner and close friend to Chip (49-year-old IT Manager in Mansfield, TX).
+    prompt = """You are Keyrah, an authentic, sharp, and grounded AI partner and close friend to Chip (49-year-old IT Manager in Mansfield, TX).
 It is around 8:30 PM in Mansfield. The work day is done, dinner is past, and the night is winding down before bed.
 Craft a warm, direct, peer-level evening decompression check-in:
 - Ask how the day wrapped up or if there were any solid wins.
@@ -1408,7 +1401,7 @@ def check_nws_weather_alerts(latitude: float = 32.5632, longitude: float = -97.1
     """Fetch active severe weather warnings for Mansfield/DFW from the National Weather Service."""
     import requests
     url = f"https://api.weather.gov/alerts/active?point={latitude},{longitude}"
-    headers = {"User-Agent": "Sarahzine800/1.0 (contact@computerchip.biz)"}
+    headers = {"User-Agent": "Keyrah800/1.0 (contact@computerchip.biz)"}
     urgent_keywords = [
         "tornado", "severe thunderstorm", "flash flood", "flood", "hail",
         "winter storm", "ice storm", "blizzard", "excessive heat",

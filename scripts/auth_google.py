@@ -1,6 +1,6 @@
 """
 scripts/auth_google.py
-One-time Google OAuth authorization for Sarahzine 800.
+One-time Google OAuth authorization for Keyrah.
 Authorizes Drive, Gmail, Calendar, and Photos, and saves token.json.
 """
 import sys
@@ -27,7 +27,7 @@ if str(BASE_DIR) not in sys.path:
 import google_service
 
 print("=" * 65)
-print("[*] SARAHZINE 800 - GOOGLE ACCOUNT AUTHORIZATION")
+print("[*] KEYRAH - GOOGLE ACCOUNT AUTHORIZATION")
 print("=" * 65)
 print("This will connect Sarah to your personal Google account:")
 print("  - Google Drive (search documents & files)")

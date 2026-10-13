@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Sarahzine 800 - Personal AI Assistant",
+    title="Keyrah - Personal AI Assistant",
     description="24/7 Always-On Gemini Assistant with Proactive Reminders & Friend Check-ins",
     version="1.0.0",
     lifespan=lifespan,
@@ -74,7 +74,7 @@ app = FastAPI(
 def root():
     return {
         "status": "online",
-        "service": "Sarahzine 800 SMS Assistant",
+        "service": "Keyrah SMS Assistant",
         "timezone": os.getenv("USER_TIMEZONE", "America/Chicago"),
         "model": os.getenv("GEMINI_MODEL", "gemini-3.8-flash"),
     }
@@ -216,20 +216,20 @@ async def handle_telegram_message(message: dict):
         # 3. Direct shortcuts and commands
         clean_lower = text.lower().strip()
         if text.startswith("/start"):
-            reply_text = "Sarahzine 800 online and connected. What are we working on, Chip?"
+            reply_text = "Keyrah online and connected. What are we working on, Chip?"
 
         elif "briefing" in clean_lower or clean_lower in ["/briefing", "start my day", "daily starter"]:
             reply_text = assistant.generate_morning_briefing(user_phone=user_identifier)
             if any(k in clean_lower for k in ["text", "sms", "send", "phone"]):
                 import email_service
-                email_service.send_gateway_text(reply_text, subject="Sarahzine 800 Morning Briefing")
+                email_service.send_gateway_text(reply_text, subject="Keyrah Morning Briefing")
 
         elif clean_lower.startswith("/memories") or clean_lower in ["memories", "show memories", "what do you remember"]:
             mems = database.get_user_memories(user_identifier, limit=50)
             if not mems:
                 reply_text = "🧠 Memory Bank is currently empty. As you share facts about your life, work, preferences, and family, I will store them here!"
             else:
-                lines = ["🧠 **Sarahzine 800 Memory Bank:**\n"]
+                lines = ["🧠 **Keyrah Memory Bank:**\n"]
                 for m in mems:
                     lines.append(f"• `#{m['id']}` [{m['category']}/{m['subject']}]: {m['detail']}")
                 lines.append("\n_Use `/forget <id>` to remove any memory, or `/remember <fact>` to save a new one._")
@@ -268,7 +268,7 @@ async def handle_telegram_message(message: dict):
                 sample = database.search_ebooks(limit=10)
                 fmt_str = ", ".join(f"{fmt}: {cnt}" for fmt, cnt in summary.get("formats", {}).items())
                 lines = [
-                    f"📚 **Sarahzine Ebook Library:**\n",
+                    f"📚 **Keyrah Ebook Library:**\n",
                     f"You have **{summary['total_books']}** ebooks indexed under `Z:\\My Drive\\03_Reading & Library\\Ebooks`.\n",
                     f"**Formats:** {fmt_str}\n",
                     "**Featured / Sample Titles:**",

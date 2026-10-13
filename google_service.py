@@ -1,6 +1,6 @@
 """
 google_service.py
-Unified Google Workspace & Personal Cloud Integration for Sarahzine 800.
+Unified Google Workspace & Personal Cloud Integration for Keyrah.
 Provides authenticated access to:
 - Google Drive (search files, read docs, find sheets/PDFs)
 - Gmail (search emails, extract order confirmations, trackings, summaries)
