@@ -10,22 +10,22 @@ load_dotenv()
 
 logger = logging.getLogger("chipai.email_service")
 
-SMS_GATEWAY_EMAIL = os.getenv("SMS_GATEWAY_EMAIL", "6822331191@vzwpix.com")
+SMS_GATEWAY_EMAIL = os.getenv("SMS_GATEWAY_EMAIL", "6822331191@vtext.com")
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in ("true", "1", "yes")
-SMTP_FROM = os.getenv("SMTP_FROM", "") or SMTP_USER or "sarahzine800@gowan.one"
+SMTP_FROM = os.getenv("SMTP_FROM", "") or SMTP_USER or "keyrah@gowan.one"
 
 
 def send_gateway_text(
     body: str,
     to_address: Optional[str] = None,
-    subject: str = "Sarahzine 800",
+    subject: str = "",
 ) -> bool:
-    """Send an SMS/MMS text message via carrier email-to-text gateway using SMTP.
-    For Verizon, sending to @vzwpix.com delivers up to ~3,000 chars as a unified MMS text.
+    """Send an SMS text message via carrier email-to-text gateway using SMTP.
+    Delivers directly to Verizon's SMS gateway (@vtext.com).
     """
     dest = (to_address or SMS_GATEWAY_EMAIL or "").strip()
     if not dest:
@@ -36,7 +36,7 @@ def send_gateway_text(
     user = os.getenv("SMTP_USER", SMTP_USER).strip()
     password = os.getenv("SMTP_PASSWORD", SMTP_PASSWORD).replace(" ", "").strip()
     port = int(os.getenv("SMTP_PORT", str(SMTP_PORT)))
-    sender = os.getenv("SMTP_FROM", SMTP_FROM).strip() or user or "sarahzine800@gowan.one"
+    sender = os.getenv("SMTP_FROM", SMTP_FROM).strip() or user or "keyrah@gowan.one"
 
     # If SMTP credentials are not configured, log mock dispatch
     if not host or not user or not password:

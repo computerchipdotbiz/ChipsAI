@@ -39,7 +39,7 @@ def check_and_send_due_reminders():
             elif "quote" in text.lower():
                 body = assistant.generate_daily_quote()
             else:
-                body = f"⏰ Sarahzine 800 Reminder: {text}"
+                body = f"⏰ Keyrah Reminder: {text}"
             logger.info(f"Sending due reminder #{reminder_id} to {user_phone}: {body[:50]}...")
 
             chat_id = _resolve_telegram_chat_id(user_phone)
@@ -103,7 +103,7 @@ def check_and_send_event_prep_checkins():
             chat_id = _resolve_telegram_chat_id(reminder_phone)
             sent = telegram_service.send_message(chat_id, msg)
             if sent:
-                # Save into conversation history so when Chip texts back, Sarahzine has context
+                # Save into conversation history so when Chip texts back, Keyrah has context
                 database.save_message(reminder_phone, "model", msg)
                 database.record_proactive_checkin(
                     reminder_phone, "event_prep", subject_key, text, msg
@@ -299,7 +299,7 @@ def check_inventory_watches():
                 chat_id = _resolve_telegram_chat_id(user_phone)
                 reason_line = f"• **Alert:** {price_match_reason}\n" if price_match_reason else ""
                 alert_text = (
-                    f"🚨 **Sarahzine Radar Alert: {product_name}**\n\n"
+                    f"🚨 **Keyrah Radar Alert: {product_name}**\n\n"
                     f"{reason_line}"
                     f"• **Status:** {overall_status}\n"
                     f"• **Price:** {price_str}\n"
@@ -338,12 +338,12 @@ def check_and_send_morning_briefing(db_path: str = database.DB_FILE):
         if not briefing:
             return
 
-        # 1. Dispatch text via email-to-MMS gateway
-        gateway_dest = os.getenv("SMS_GATEWAY_EMAIL", "6822331191@vzwpix.com")
+        # 1. Dispatch text via email-to-SMS gateway
+        gateway_dest = os.getenv("SMS_GATEWAY_EMAIL", "6822331191@vtext.com")
         email_sent = email_service.send_gateway_text(
             body=briefing,
             to_address=gateway_dest,
-            subject="Sarahzine 800 Morning Briefing",
+            subject="",
         )
 
         # 2. Dispatch to Telegram
@@ -366,7 +366,7 @@ def check_and_send_vine_potluck(period_name: str = "Daily Drop"):
     try:
         from scripts import vine_watcher
         logger.info(f"Triggering scheduled Vine Potluck check ({period_name})...")
-        caption_prefix = f"🌿 **Sarahzine 800 • Amazon Vine Potluck Drop ({period_name})**\n\n"
+        caption_prefix = f"🌿 **Keyrah • Amazon Vine Potluck Drop ({period_name})**\n\n"
         vine_watcher.check_and_capture_potluck(notify_telegram=True, custom_caption_prefix=caption_prefix)
     except Exception as e:
         logger.error(f"Error executing Vine Potluck scheduled check: {e}", exc_info=True)
@@ -392,30 +392,12 @@ def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
         replace_existing=True,
     )
 
-    # 2. Anticipatory event prep check-ins (evaluates ~10h upcoming tasks every 5 minutes)
+    # 2. Severe weather radar alerts (checks NWS every 5m)
     _scheduler.add_job(
-        check_and_send_event_prep_checkins,
+        check_and_send_weather_alerts,
         "interval",
         minutes=5,
-        id="check_event_prep_job",
-        replace_existing=True,
-    )
-
-    # 3. Random friend check-ins (evaluates quiet hours & daily pacing every 30 minutes)
-    _scheduler.add_job(
-        check_and_send_random_friend_checkin,
-        "interval",
-        minutes=30,
-        id="check_friend_checkin_job",
-        replace_existing=True,
-    )
-
-    # 4. Evening decompression check-in (checks every 10m around 8:30pm)
-    _scheduler.add_job(
-        check_and_send_evening_decompression,
-        "interval",
-        minutes=10,
-        id="check_evening_decompression_job",
+        id="check_weather_alerts_job",
         replace_existing=True,
     )
 
@@ -448,32 +430,20 @@ def start_scheduler(interval_seconds: int = 15) -> BackgroundScheduler:
         replace_existing=True,
     )
 
-    # 8. Amazon Vine Potluck morning drop (8:30 AM local)
+    # 8. Amazon Vine Potluck checks (Every 2 hours between 8:00 AM and 9:00 PM CST)
     _scheduler.add_job(
         check_and_send_vine_potluck,
         "cron",
-        args=["8:30 AM Morning Drop"],
-        hour=8,
-        minute=30,
+        args=["Vine Check"],
+        hour="8,10,12,14,16,18,20",
+        minute=0,
         timezone=user_tz,
-        id="vine_potluck_morning_job",
-        replace_existing=True,
-    )
-
-    # 9. Amazon Vine Potluck afternoon drop (3:30 PM local)
-    _scheduler.add_job(
-        check_and_send_vine_potluck,
-        "cron",
-        args=["3:30 PM Afternoon Drop"],
-        hour=15,
-        minute=30,
-        timezone=user_tz,
-        id="vine_potluck_afternoon_job",
+        id="vine_potluck_periodic_job",
         replace_existing=True,
     )
 
     _scheduler.start()
-    logger.info("Background scheduler started with morning briefing (7:30 AM), reminders, event prep, friend pings, weather radar, and Vine Potluck drops.")
+    logger.info("Background scheduler started with morning briefing (7:30 AM), reminders, weather radar, and Vine checks.")
     return _scheduler
 
 
